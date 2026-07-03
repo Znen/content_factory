@@ -34,9 +34,14 @@ def spent(project_dir: Path) -> float:
         if not line:
             continue
         try:
-            total += float(json.loads(line).get("cost_usd", 0.0))
-        except (json.JSONDecodeError, TypeError, ValueError):
+            record = json.loads(line)
+        except json.JSONDecodeError:
             continue
+        if isinstance(record, dict):
+            try:
+                total += float(record.get("cost_usd", 0.0))
+            except (TypeError, ValueError):
+                continue
     return round(total, 4)
 
 

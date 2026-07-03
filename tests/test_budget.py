@@ -33,3 +33,13 @@ def test_check_cap_allows_under(tmp_path):
     log_cost(tmp_path, "nano", 1, 1.0)
     out = check(tmp_path, 1.0, cap_usd=5.0)
     assert out["allowed"] is True
+
+
+def test_spent_skips_non_dict_lines(tmp_path):
+    logdir = tmp_path / "media"
+    logdir.mkdir(parents=True, exist_ok=True)
+    logfile = logdir / ".gf_cost_log.jsonl"
+    logfile.write_text(
+        '{"ts": 0, "backend": "nano", "n": 1, "cost_usd": 0.04, "note": ""}\n'
+        '123\n', encoding="utf-8")
+    assert spent(tmp_path) == 0.04
