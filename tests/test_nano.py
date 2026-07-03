@@ -100,3 +100,19 @@ def test_generate_double_auth_failure_raises_nanoerror(tmp_path):
         nano.generate("x", [ref], tmp_path / "o",
                       server_url="http://localhost:3001", password="pw",
                       token_cache=tmp_path / "t.json", session=_Fake401Session())
+
+
+import os
+
+
+@pytest.mark.live
+def test_nano_live_smoke(tmp_path):
+    """Real hit against the running Nitro server (:3001). GF_RUN_LIVE=1 to enable."""
+    from gf.mcp_server import _nano_password
+    from gf.config import load_settings
+    s = load_settings()
+    pw = _nano_password(s)
+    assert pw, "no NITRO_BANANA_APP_PASSWORD available"
+    saved = nano.generate("a simple test still, soft light, minimal", [], tmp_path,
+                          server_url=s.nano_server_url, password=pw, timeout=s.nano_timeout)
+    assert saved and saved[0].exists() and saved[0].stat().st_size > 0
