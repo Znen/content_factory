@@ -7,7 +7,7 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
 
 - `gf_generate_draft(project, prompt, n=4, negative="", seed=0)` — N cheap ComfyUI drafts
   → `<project>/media/generated/<date>/_drafts/draft-NN.png`.
-- `gf_generate_final(project, prompt, refs=[], aspect="9:16")` — Nano Banana final (≤4 refs)
+- `gf_generate_final(project, prompt, refs=None, aspect="9:16")` — Nano Banana final (≤4 refs)
   → `<project>/media/generated/<date>/nano_*.png`.
 
 `project` is the absolute path to the project folder.

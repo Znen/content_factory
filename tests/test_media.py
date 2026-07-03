@@ -1,4 +1,4 @@
-from gf.media import drafts_dir, shot_dir, next_index, today
+from gf.media import drafts_dir, shot_dir, next_index, today, generated_dir
 
 
 def test_drafts_dir_created(tmp_path):
@@ -18,6 +18,13 @@ def test_next_index_counts(tmp_path):
     (tmp_path / "draft-01.png").write_bytes(b"x")
     (tmp_path / "draft-02.png").write_bytes(b"x")
     assert next_index(tmp_path, "draft") == 3
+
+
+def test_generated_dir_created(tmp_path):
+    d = generated_dir(tmp_path, "2026-07-03")
+    assert d.exists()
+    assert d.as_posix().endswith("media/generated/2026-07-03")
+    assert not (d / "_drafts").exists()  # no stray drafts folder
 
 
 def test_today_format():

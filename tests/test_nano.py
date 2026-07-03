@@ -102,9 +102,6 @@ def test_generate_double_auth_failure_raises_nanoerror(tmp_path):
                       token_cache=tmp_path / "t.json", session=_Fake401Session())
 
 
-import os
-
-
 @pytest.mark.live
 def test_nano_live_smoke(tmp_path):
     """Real hit against the running Nitro server (:3001). GF_RUN_LIVE=1 to enable."""

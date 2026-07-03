@@ -35,6 +35,12 @@ def test_check_cap_allows_under(tmp_path):
     assert out["allowed"] is True
 
 
+def test_check_zero_cost_allowed_even_over_cap(tmp_path):
+    log_cost(tmp_path, "nano", 1, 10.0)  # already over a $5 cap
+    out = check(tmp_path, 0.0, cap_usd=5.0)
+    assert out["allowed"] is True
+
+
 def test_spent_skips_non_dict_lines(tmp_path):
     logdir = tmp_path / "media"
     logdir.mkdir(parents=True, exist_ok=True)

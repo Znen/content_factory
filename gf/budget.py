@@ -46,6 +46,8 @@ def spent(project_dir: Path) -> float:
 
 
 def check(project_dir: Path, add_usd: float, cap_usd: "float | None") -> dict:
+    if add_usd <= 0:
+        return {"allowed": True, "spent": spent(project_dir), "cap": cap_usd, "reason": "zero-cost"}
     already = spent(project_dir)
     if cap_usd is None:
         return {"allowed": True, "spent": already, "cap": None, "reason": "no cap"}

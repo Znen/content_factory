@@ -29,9 +29,9 @@ def generate_draft(project: str, prompt: str,
                    negative: str = typer.Option("", help="negative prompt"),
                    seed: int = typer.Option(0, help="seed")):
     """ComfyUI drafts (manual smoke; requires ComfyUI on GF_COMFYUI_URL)."""
-    from .config import load_settings
+    from .core import build_core
     from .mcp_server import _generate_draft_impl
-    out = _generate_draft_impl(project, prompt, n, negative, seed, settings=load_settings())
+    out = _generate_draft_impl(project, prompt, n, negative, seed, settings=build_core().settings)
     typer.echo(json.dumps(out, ensure_ascii=False, indent=2))
 
 
@@ -40,9 +40,9 @@ def generate_final(project: str, prompt: str,
                    ref: Optional[List[str]] = typer.Option(None, help="reference image (repeatable)"),
                    aspect: str = typer.Option("9:16", help="aspect ratio")):
     """Nano Banana final (manual smoke; requires Nitro server on GF_NANO_SERVER_URL)."""
-    from .config import load_settings
+    from .core import build_core
     from .mcp_server import _generate_final_impl
-    out = _generate_final_impl(project, prompt, ref or [], aspect, settings=load_settings())
+    out = _generate_final_impl(project, prompt, ref or [], aspect, settings=build_core().settings)
     typer.echo(json.dumps(out, ensure_ascii=False, indent=2))
 
 

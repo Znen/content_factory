@@ -19,6 +19,12 @@ def drafts_dir(project_dir: Path, date: str) -> Path:
     return d
 
 
+def generated_dir(project_dir: Path, date: str) -> Path:
+    d = _generated(project_dir, date)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def shot_dir(project_dir: Path, date: str, shot: str) -> Path:
     d = _generated(project_dir, date) / shot
     d.mkdir(parents=True, exist_ok=True)

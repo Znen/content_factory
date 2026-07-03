@@ -61,3 +61,25 @@ def test_final_impl_blocked_by_cap(tmp_path):
     assert out["images"] == []
     # nothing generated
     assert not any((tmp_path / "media").rglob("nano_*.png"))
+
+
+def test_bearer_auth_middleware_rejects_bad_token():
+    import asyncio
+    from gf.mcp_server import _make_bearer_middleware
+    cls = _make_bearer_middleware("secret")
+    mw = cls(app=lambda scope, receive, send: None)
+
+    class _Req:
+        def __init__(self, auth):
+            self.headers = {"authorization": auth} if auth is not None else {}
+
+    async def _next(req):
+        from starlette.responses import PlainTextResponse
+        return PlainTextResponse("ok")
+
+    async def _run(auth):
+        return await mw.dispatch(_Req(auth), _next)
+
+    assert asyncio.run(_run(None)).status_code == 401
+    assert asyncio.run(_run("Bearer wrong")).status_code == 401
+    assert asyncio.run(_run("Bearer secret")).status_code == 200
