@@ -1,0 +1,29 @@
+[project]
+name = "content-factory"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.2",
+  "typer>=0.12",
+  "requests>=2.32",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+gf = "gf.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gf*"]
+
+[tool.setuptools.package-data]
+gf = ["workflows/*.json"]
+
+[tool.pytest.ini_options]
+markers = ["live: hits a real external service (ComfyUI/Nitro); skipped by default"]
