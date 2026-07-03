@@ -83,6 +83,8 @@ def _login(session, server_url: str, password: str) -> str:
     except requests.exceptions.ConnectionError as e:
         raise NanoError(f"Cannot reach Nitro server at {server_url}. "
                         f"Start it: `cd R:\\nitro_banana && npm run dev:server`. ({e})") from e
+    except requests.exceptions.Timeout as e:
+        raise NanoError(f"Login request timed out ({e})") from e
     if r.status_code == 401:
         raise NanoError("Login failed: invalid NITRO_BANANA_APP_PASSWORD.")
     if r.status_code != 200:
@@ -148,7 +150,11 @@ def generate(prompt: str, refs: "list[Path]", out_dir: Path, *,
         resp = _call_gemini(session, server_url, token, payload, timeout)
     except AuthExpired:
         token = _get_token(session, server_url, password, token_cache, force=True)
-        resp = _call_gemini(session, server_url, token, payload, timeout)
+        try:
+            resp = _call_gemini(session, server_url, token, payload, timeout)
+        except AuthExpired as e:
+            raise NanoError(
+                "Nano auth failed after token refresh (server rejected a fresh token).") from e
 
     image = resp.get("imageUrl")
     if not image:

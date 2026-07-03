@@ -82,3 +82,21 @@ def test_generate_rejects_more_than_4_refs(tmp_path):
         nano.generate("x", refs, tmp_path / "o",
                       server_url="http://localhost:3001", password="pw",
                       token_cache=tmp_path / "t.json", session=_FakeSession())
+
+
+class _Fake401Session:
+    """Login always succeeds; /api/gemini always returns 401 (double auth failure)."""
+    def post(self, url, **kwargs):
+        if url.endswith("/api/auth/login"):
+            return _FakeResp(200, {"token": "tok"})
+        if url.endswith("/api/gemini"):
+            return _FakeResp(401, {"error": "unauthorized"})
+        return _FakeResp(404, {"error": "nope"})
+
+
+def test_generate_double_auth_failure_raises_nanoerror(tmp_path):
+    ref = _png(tmp_path, "f.png")
+    with pytest.raises(nano.NanoError):
+        nano.generate("x", [ref], tmp_path / "o",
+                      server_url="http://localhost:3001", password="pw",
+                      token_cache=tmp_path / "t.json", session=_Fake401Session())
