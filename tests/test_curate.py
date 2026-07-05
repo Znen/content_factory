@@ -231,3 +231,35 @@ def test_list_sets_counts_generated_by_stems(tmp_path):
     sets = {s["set_id"]: s for s in curate.list_sets(str(proj))["sets"]}
     assert sets["final/shot-02"]["variants"] == 2      # magnific-v1 + final-v1
     assert sets["lineart/shot-02"]["variants"] == 1    # lineart-v1 only
+
+
+def test_discard_moves_to_purge_verified(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png", b"KEEP")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    out = curate.discard(str(proj), added["path"])
+    assert "error" not in out
+    moved = proj / "media" / out["moved_to"]
+    assert moved.read_bytes() == b"KEEP"
+    assert out["moved_to"].startswith("_TO_PURGE/")
+    assert not (proj / "media" / added["path"]).exists()
+    assert read_ledger(proj)[-1]["op"] == "discard"
+
+
+def test_discard_blocks_outside_media_and_double_discard(tmp_path):
+    proj = _proj(tmp_path)
+    outside = _img(tmp_path / "elsewhere", "x.png")
+    assert "error" in curate.discard(str(proj), str(outside))
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    moved = curate.discard(str(proj), added["path"])["moved_to"]
+    assert "error" in curate.discard(str(proj), moved)  # already in _TO_PURGE
+
+
+def test_discard_current_winner_warns_dangling(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    curate.set_winner(str(proj), "cast/anna", added["path"])
+    out = curate.discard(str(proj), added["path"])
+    assert "hint" in out and "cast/anna" in out["hint"]

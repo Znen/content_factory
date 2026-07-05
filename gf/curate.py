@@ -282,3 +282,35 @@ def list_sets(project: str, kind: "str | None" = None) -> dict:
                      "winner_exists": bool(winner) and (media / winner).is_file(),
                      "dirs": [_rel(media, d) for d in dirs]})
     return {"sets": sets}
+
+
+def discard(project: str, image_path: str) -> dict:
+    """Soft delete: copy→sha256→remove into media/_TO_PURGE/<date>/. Never hard-delete."""
+    project_dir = Path(project)
+    media = media_root(project_dir)
+    src = _resolve_in_media(media, image_path)
+    if src is None or not src.is_file():
+        return _err(f"file to discard must exist inside {media}",
+                    "nothing outside the project media can be discarded")
+    if PURGE_DIR in src.parts:
+        return _err("already in _TO_PURGE")
+    rel_src = _rel(media, src)
+    dest = _unique(media / PURGE_DIR / now_iso()[:10], src.name)
+    h = _copy_verified(src, dest)
+    if h is None:
+        return _err("copy failed (I/O error or hash mismatch) — source preserved, nothing removed")
+    src.unlink()
+    rel_moved = _rel(media, dest)
+    append_ledger(project_dir, {"op": "discard", "path": rel_src,
+                                "moved_to": rel_moved, "sha256": h})
+    out = {"moved_to": rel_moved, "sha256": h}
+    try:
+        manifest = load_manifest(project_dir)
+        dangling = sorted(sid for sid, e in manifest["winners"].items()
+                          if e.get("path") == rel_src)
+        if dangling:
+            out["hint"] = (f"winner now dangling for {dangling}; "
+                           f"re-run gf_set_winner")
+    except CurateStateError:
+        pass
+    return out
