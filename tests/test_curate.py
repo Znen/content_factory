@@ -305,3 +305,15 @@ def test_set_winner_refuses_state_files(tmp_path):
     curate.add_variant(str(proj), str(src), "cast/anna")
     out = curate.set_winner(str(proj), "cast/anna", ".gf_media_ledger.jsonl")
     assert "error" in out
+
+
+def test_list_sets_counts_adopted_legacy_files(tmp_path):
+    proj = _proj(tmp_path)
+    legacy = proj / "media" / "generated" / "2026-07-04" / "shot-09"
+    legacy.mkdir(parents=True)
+    (legacy / "shot-09-closeup-lineart-v1.png").write_bytes(b"x")  # legacy-имя
+    (legacy / "weird_name.jpg").write_bytes(b"x")
+    (legacy / "notes.txt").write_bytes(b"x")
+    curate.adopt_set(str(proj), "lineart/shot-09", "generated/2026-07-04/shot-09")
+    sets = {s["set_id"]: s for s in curate.list_sets(str(proj))["sets"]}
+    assert sets["lineart/shot-09"]["variants"] == 2  # все изображения, .txt не считается

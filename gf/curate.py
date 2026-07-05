@@ -268,13 +268,23 @@ def list_sets(project: str, kind: "str | None" = None) -> dict:
             adp = media / ad
             if adp.is_dir() and adp not in dirs:
                 dirs = dirs + [adp]
-        if k in naming.REFERENCE_KINDS:
-            variants = sum(1 for d in dirs for p in d.iterdir()
-                           if p.is_file() and p.suffix.lower() in naming.IMAGE_EXTS)
+        if k in naming.REFERENCE_KINDS or set_id in adopted:
+            seen = set()
+            variants = 0
+            for d in dirs:
+                if not d.is_dir():
+                    continue
+                for p in d.iterdir():
+                    rp = p.resolve()
+                    if rp in seen:
+                        continue
+                    if p.is_file() and p.suffix.lower() in naming.IMAGE_EXTS:
+                        seen.add(rp)
+                        variants += 1
         else:
             stems = naming.stems_for_set(k, ledger, set_id)
             pats = [naming.pattern(k, s) for s in stems]
-            variants = sum(1 for d in dirs for p in d.iterdir()
+            variants = sum(1 for d in dirs if d.is_dir() for p in d.iterdir()
                            if p.is_file() and any(pt.match(p.name) for pt in pats))
         entry = manifest["winners"].get(set_id)
         winner = entry["path"] if entry else None
