@@ -292,15 +292,20 @@ def discard(project: str, image_path: str) -> dict:
     if src is None or not src.is_file():
         return _err(f"file to discard must exist inside {media}",
                     "nothing outside the project media can be discarded")
-    if PURGE_DIR in src.parts:
-        return _err("already in _TO_PURGE")
     rel_src = _rel(media, src)
+    if rel_src.split("/", 1)[0] == PURGE_DIR:
+        return _err("already in _TO_PURGE")
     dest = _unique(media / PURGE_DIR / now_iso()[:10], src.name)
     h = _copy_verified(src, dest)
     if h is None:
         return _err("copy failed (I/O error or hash mismatch) — source preserved, nothing removed")
-    src.unlink()
     rel_moved = _rel(media, dest)
+    try:
+        src.unlink()
+    except OSError as e:
+        return _err(
+            f"copy verified at {rel_moved}, but removing the source failed: {e}",
+            "source left in place; the verified duplicate remains in _TO_PURGE — retry once the file is unlocked")
     append_ledger(project_dir, {"op": "discard", "path": rel_src,
                                 "moved_to": rel_moved, "sha256": h})
     out = {"moved_to": rel_moved, "sha256": h}
@@ -309,7 +314,7 @@ def discard(project: str, image_path: str) -> dict:
         dangling = sorted(sid for sid, e in manifest["winners"].items()
                           if e.get("path") == rel_src)
         if dangling:
-            out["hint"] = (f"winner now dangling for {dangling}; "
+            out["hint"] = (f"winner now dangling for {', '.join(dangling)}; "
                            f"re-run gf_set_winner")
     except CurateStateError:
         pass

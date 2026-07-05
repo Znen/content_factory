@@ -263,3 +263,23 @@ def test_discard_current_winner_warns_dangling(tmp_path):
     curate.set_winner(str(proj), "cast/anna", added["path"])
     out = curate.discard(str(proj), added["path"])
     assert "hint" in out and "cast/anna" in out["hint"]
+
+
+def test_discard_unlink_failure_is_contained(tmp_path, monkeypatch):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    from pathlib import Path as _P
+    real_unlink = _P.unlink
+
+    def _locked(self, *a, **k):
+        if self.suffix == ".png" and "_TO_PURGE" not in str(self):
+            raise OSError("locked by another process")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(_P, "unlink", _locked)
+    before = len(read_ledger(proj))
+    out = curate.discard(str(proj), added["path"])
+    assert "error" in out and "removing the source failed" in out["error"]
+    assert (proj / "media" / added["path"]).exists()          # source intact
+    assert len(read_ledger(proj)) == before                    # no ledger record
