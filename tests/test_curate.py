@@ -182,3 +182,52 @@ def test_set_winner_projection_failure_is_soft(tmp_path, monkeypatch):
     m = load_manifest(proj)
     assert m["winners"]["cast/anna"]["path"] == added["path"]
     assert read_ledger(proj)[-1]["op"] == "set_winner"      # ledger в синхроне с манифестом
+
+
+def test_adopt_registers_without_moving(tmp_path):
+    proj = _proj(tmp_path)
+    legacy = proj / "media" / "generated" / "2026-07-04" / "shot-03-kitchen"
+    legacy.mkdir(parents=True)
+    (legacy / "kitchen-birch-v1.jpg").write_bytes(b"x")
+    (legacy / "kitchen-birch-v2.jpg").write_bytes(b"x")
+    (legacy / "notes.txt").write_bytes(b"x")
+    out = curate.adopt_set(str(proj), "final/shot-03-kitchen",
+                           "generated/2026-07-04/shot-03-kitchen")
+    assert out["files"] == 2                      # only images counted
+    assert (legacy / "kitchen-birch-v1.jpg").exists()  # nothing moved
+    assert read_ledger(proj)[-1]["op"] == "adopt"
+    ids = [s["set_id"] for s in curate.list_sets(str(proj))["sets"]]
+    assert "final/shot-03-kitchen" in ids
+
+
+def test_adopt_rejects_outside_or_missing_dir(tmp_path):
+    proj = _proj(tmp_path)
+    assert "error" in curate.adopt_set(str(proj), "final/x", "generated/nope")
+    assert "error" in curate.adopt_set(str(proj), "final/x", str(tmp_path / "elsewhere"))
+
+
+def test_list_sets_discovers_reference_dirs_and_winner_flags(tmp_path):
+    proj = _proj(tmp_path)
+    d = proj / "media" / "references" / "cast" / "kurtukova"
+    d.mkdir(parents=True)
+    (d / "kurtukova-01.jpg").write_bytes(b"x")
+    listed = curate.list_sets(str(proj), kind="cast")
+    (s,) = listed["sets"]
+    assert s["set_id"] == "cast/kurtukova"
+    assert s["variants"] == 1 and s["winner"] is None
+    curate.set_winner(str(proj), "cast/kurtukova",
+                      "references/cast/kurtukova/kurtukova-01.jpg")
+    listed = curate.list_sets(str(proj), kind="cast")
+    assert listed["sets"][0]["winner_exists"] is True
+
+
+def test_list_sets_counts_generated_by_stems(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    curate.add_variant(str(proj), str(src), "final/shot-02",
+                       date="2026-07-05", stage="magnific")
+    curate.add_variant(str(proj), str(src), "final/shot-02", date="2026-07-05")
+    curate.add_variant(str(proj), str(src), "lineart/shot-02", date="2026-07-05")
+    sets = {s["set_id"]: s for s in curate.list_sets(str(proj))["sets"]}
+    assert sets["final/shot-02"]["variants"] == 2      # magnific-v1 + final-v1
+    assert sets["lineart/shot-02"]["variants"] == 1    # lineart-v1 only

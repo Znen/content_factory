@@ -207,3 +207,78 @@ def materialize_winners(project: str) -> dict:
                 removed += 1
     return {"materialized": materialized, "removed_stale": removed,
             "dangling": sorted(dangling)}
+
+
+def adopt_set(project: str, set_id: str, dir: str) -> dict:
+    """Register an existing directory as a set's history (ledger only; no moves)."""
+    project_dir = Path(project)
+    media = media_root(project_dir)
+    try:
+        naming.parse_set_id(set_id)
+    except naming.NamingError as e:
+        return _err(str(e))
+    d = _resolve_in_media(media, dir)
+    if d is None or not d.is_dir():
+        return _err(f"dir must be an existing directory inside {media}")
+    files = sum(1 for p in d.iterdir()
+                if p.is_file() and p.suffix.lower() in naming.IMAGE_EXTS)
+    rel_dir = _rel(media, d)
+    append_ledger(project_dir, {"op": "adopt", "set_id": set_id,
+                                "dir": rel_dir, "files": files})
+    return {"set_id": set_id, "dir": rel_dir, "files": files}
+
+
+def list_sets(project: str, kind: "str | None" = None) -> dict:
+    """Inventory: sets (manifest ∪ ledger ∪ references scan), counts, winners."""
+    project_dir = Path(project)
+    media = media_root(project_dir)
+    try:
+        manifest = load_manifest(project_dir)
+    except CurateStateError as e:
+        return _err(str(e))
+    ledger = read_ledger(project_dir)
+
+    ids: "set[str]" = set(manifest["winners"])
+    for rec in ledger:
+        sid = rec.get("set_id")
+        if sid:
+            ids.add(sid)
+    refs = media / "references"
+    if refs.is_dir():
+        for kdir in refs.iterdir():
+            if kdir.is_dir() and kdir.name in naming.REFERENCE_KINDS:
+                for ndir in kdir.iterdir():
+                    if ndir.is_dir():
+                        ids.add(f"{kdir.name}/{ndir.name}")
+
+    adopted = {rec["set_id"]: rec.get("dir") for rec in ledger
+               if rec.get("op") == "adopt" and rec.get("set_id")}
+    sets = []
+    for set_id in sorted(ids):
+        try:
+            k, name = naming.parse_set_id(set_id)
+        except naming.NamingError:
+            continue
+        if kind and k != kind:
+            continue
+        dirs = naming.set_history_dirs(media, k, name)
+        ad = adopted.get(set_id)
+        if ad:
+            adp = media / ad
+            if adp.is_dir() and adp not in dirs:
+                dirs = dirs + [adp]
+        if k in naming.REFERENCE_KINDS:
+            variants = sum(1 for d in dirs for p in d.iterdir()
+                           if p.is_file() and p.suffix.lower() in naming.IMAGE_EXTS)
+        else:
+            stems = naming.stems_for_set(k, ledger, set_id)
+            pats = [naming.pattern(k, s) for s in stems]
+            variants = sum(1 for d in dirs for p in d.iterdir()
+                           if p.is_file() and any(pt.match(p.name) for pt in pats))
+        entry = manifest["winners"].get(set_id)
+        winner = entry["path"] if entry else None
+        sets.append({"set_id": set_id, "kind": k, "name": name,
+                     "variants": variants, "winner": winner,
+                     "winner_exists": bool(winner) and (media / winner).is_file(),
+                     "dirs": [_rel(media, d) for d in dirs]})
+    return {"sets": sets}
