@@ -94,6 +94,41 @@ def build_server():
         """Generate a client-facing final with Nano Banana (up to 4 multi-image refs)."""
         return _generate_final_impl(project, prompt, refs, aspect, settings=settings)
 
+    from . import curate
+
+    @mcp.tool()
+    def gf_add_variant(project: str, image_path: str, set_id: str,
+                       note: str = "", date: str = "", stage: str = "") -> dict:
+        """Copy an image into a variant set under a canonical name (source untouched).
+        set_id = '<kind>/<name>', kinds: lineart|final|cast|look-and-feel|brand|location."""
+        return curate.add_variant(project, image_path, set_id, note=note,
+                                  date=date or None, stage=stage or None)
+
+    @mcp.tool()
+    def gf_set_winner(project: str, set_id: str, image_path: str) -> dict:
+        """Point a set's movable winner at a file inside the project (no pixel moves)."""
+        return curate.set_winner(project, set_id, image_path)
+
+    @mcp.tool()
+    def gf_list_sets(project: str, kind: str = "") -> dict:
+        """Inventory of variant sets: counts, current winners, homes."""
+        return curate.list_sets(project, kind=kind or None)
+
+    @mcp.tool()
+    def gf_materialize_winners(project: str) -> dict:
+        """Rebuild the winners/ projection folder from the manifest + history."""
+        return curate.materialize_winners(project)
+
+    @mcp.tool()
+    def gf_discard(project: str, image_path: str) -> dict:
+        """Soft-delete a media file into _TO_PURGE (verified copy; never hard-delete)."""
+        return curate.discard(project, image_path)
+
+    @mcp.tool()
+    def gf_adopt_set(project: str, set_id: str, dir: str) -> dict:
+        """Register an existing folder as a set's history (no files are moved)."""
+        return curate.adopt_set(project, set_id, dir)
+
     return mcp, settings
 
 

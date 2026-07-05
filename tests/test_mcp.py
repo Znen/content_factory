@@ -83,3 +83,12 @@ def test_bearer_auth_middleware_rejects_bad_token():
     assert asyncio.run(_run(None)).status_code == 401
     assert asyncio.run(_run("Bearer wrong")).status_code == 401
     assert asyncio.run(_run("Bearer secret")).status_code == 200
+
+
+def test_curation_tools_registered():
+    import asyncio
+    from gf.mcp_server import build_server
+    mcp, _ = build_server()
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"gf_add_variant", "gf_set_winner", "gf_list_sets",
+            "gf_materialize_winners", "gf_discard", "gf_adopt_set"} <= names
