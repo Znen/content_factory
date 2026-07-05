@@ -103,3 +103,7 @@ def main():
         if reconfigure:
             reconfigure(encoding="utf-8", errors="replace")
     app()
+
+
+if __name__ == "__main__":  # enables `python -m gf.cli` (Hermes stdio launch)
+    main()
