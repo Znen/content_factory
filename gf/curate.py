@@ -110,3 +110,82 @@ def add_variant(project: str, image_path: str, set_id: str, note: str = "",
     append_ledger(project_dir, rec)
     return {"set_id": set_id, "path": _rel(media, dest),
             "original_name": src.name, "sha256": h}
+
+
+def _projection_path(media: Path, kind: str, name: str, ext: str) -> Path:
+    return media / WINNERS_DIR / kind / f"{name}{ext.lower()}"
+
+
+def set_winner(project: str, set_id: str, image_path: str) -> dict:
+    """Move the winner pointer: manifest (atomic) + refresh projection. No pixel moves."""
+    project_dir = Path(project)
+    media = media_root(project_dir)
+    try:
+        kind, name = naming.parse_set_id(set_id)
+    except naming.NamingError as e:
+        return _err(str(e))
+    target = _resolve_in_media(media, image_path)
+    if target is None or not target.is_file():
+        return _err(f"winner target must be an existing file inside {media}",
+                    "add it with gf_add_variant, or check gf_list_sets")
+    try:
+        manifest = load_manifest(project_dir)
+    except CurateStateError as e:
+        return _err(str(e))
+    rel = _rel(media, target)
+    entry = manifest["winners"].get(set_id)
+    prev = entry["path"] if entry else None
+    if prev == rel:
+        return {"set_id": set_id, "path": rel, "changed": False}
+    history = list(entry.get("history", [])) if entry else []
+    if prev:
+        history.append(prev)
+    manifest["winners"][set_id] = {"path": rel, "set_at": now_iso(),
+                                   "history": history}
+    save_manifest(project_dir, manifest)
+    proj_dir = media / WINNERS_DIR / kind
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    for old in proj_dir.glob(f"{name}.*"):   # stale ext variants of this set
+        old.unlink(missing_ok=True)
+    proj = _projection_path(media, kind, name, target.suffix)
+    shutil.copy2(target, proj)
+    append_ledger(project_dir, {"op": "set_winner", "set_id": set_id,
+                                "path": rel, "prev": prev})
+    return {"set_id": set_id, "path": rel, "prev": prev, "changed": True,
+            "projection": _rel(media, proj)}
+
+
+def materialize_winners(project: str) -> dict:
+    """Rebuild winners/ projection from manifest + history. Projection is disposable."""
+    project_dir = Path(project)
+    media = media_root(project_dir)
+    try:
+        manifest = load_manifest(project_dir)
+    except CurateStateError as e:
+        return _err(str(e))
+    expected: "set[Path]" = set()
+    materialized, dangling = 0, []
+    for set_id, entry in manifest["winners"].items():
+        try:
+            kind, name = naming.parse_set_id(set_id)
+        except naming.NamingError:
+            dangling.append(set_id)
+            continue
+        src = media / entry.get("path", "")
+        if not src.is_file():
+            dangling.append(set_id)
+            continue
+        proj = _projection_path(media, kind, name, src.suffix)
+        proj.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, proj)
+        expected.add(proj.resolve())
+        materialized += 1
+    removed = 0
+    wdir = media / WINNERS_DIR
+    if wdir.is_dir():
+        for p in wdir.rglob("*"):
+            if p.is_file() and p.resolve() not in expected:
+                p.unlink()
+                removed += 1
+    return {"materialized": materialized, "removed_stale": removed,
+            "dangling": sorted(dangling)}

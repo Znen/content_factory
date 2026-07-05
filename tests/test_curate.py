@@ -84,3 +84,59 @@ def test_add_variant_io_error_contained_no_leftover(tmp_path, monkeypatch):
     assert src.exists()
     home = proj / "media" / "references" / "cast" / "anna"
     assert not home.exists() or not any(home.iterdir())  # partial cleaned up
+
+
+def test_set_winner_updates_manifest_and_projection(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "lineart/shot-01", date="2026-07-05")
+    out = curate.set_winner(str(proj), "lineart/shot-01", added["path"])
+    assert out["changed"] is True and out["prev"] is None
+    m = load_manifest(proj)
+    assert m["winners"]["lineart/shot-01"]["path"] == added["path"]
+    assert (proj / "media" / "winners" / "lineart" / "shot-01.png").exists()
+    assert read_ledger(proj)[-1]["op"] == "set_winner"
+
+
+def test_set_winner_reassign_appends_history_and_is_idempotent(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    v1 = curate.add_variant(str(proj), str(src), "lineart/shot-01", date="2026-07-05")
+    v2 = curate.add_variant(str(proj), str(src), "lineart/shot-01", date="2026-07-05")
+    curate.set_winner(str(proj), "lineart/shot-01", v1["path"])
+    out = curate.set_winner(str(proj), "lineart/shot-01", v2["path"])
+    assert out["prev"] == v1["path"]
+    assert load_manifest(proj)["winners"]["lineart/shot-01"]["history"] == [v1["path"]]
+    again = curate.set_winner(str(proj), "lineart/shot-01", v2["path"])
+    assert again["changed"] is False
+
+
+def test_set_winner_rejects_missing_or_outside(tmp_path):
+    proj = _proj(tmp_path)
+    assert "error" in curate.set_winner(str(proj), "lineart/shot-01", "generated/nope.png")
+    outside = _img(tmp_path / "elsewhere", "x.png")
+    assert "error" in curate.set_winner(str(proj), "lineart/shot-01", str(outside))
+
+
+def test_materialize_rebuilds_and_cleans_stale(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    curate.set_winner(str(proj), "cast/anna", added["path"])
+    wdir = proj / "media" / "winners"
+    (wdir / "cast" / "anna.png").unlink()          # проекцию испортили
+    (wdir / "cast" / "stale.png").write_bytes(b"junk")
+    out = curate.materialize_winners(str(proj))
+    assert out["materialized"] == 1 and out["removed_stale"] == 1
+    assert out["dangling"] == []
+    assert (wdir / "cast" / "anna.png").exists()
+
+
+def test_materialize_reports_dangling_winner(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    curate.set_winner(str(proj), "cast/anna", added["path"])
+    (proj / "media" / added["path"]).unlink()      # история потеряна извне
+    out = curate.materialize_winners(str(proj))
+    assert out["dangling"] == ["cast/anna"]
