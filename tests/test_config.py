@@ -1,4 +1,13 @@
+import pytest
+
 from gf.config import load_settings
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch):
+    """Keep config tests hermetic: a real .env must not leak into asserts."""
+    import dotenv
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: None)
 
 
 def test_defaults(monkeypatch):
