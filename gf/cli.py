@@ -46,6 +46,56 @@ def generate_final(project: str, prompt: str,
     typer.echo(json.dumps(out, ensure_ascii=False, indent=2))
 
 
+def _echo(result: dict) -> None:
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+@app.command("add-variant")
+def add_variant_cmd(project: str, image_path: str, set_id: str,
+                    note: str = typer.Option("", help="комментарий-провенанс"),
+                    date: str = typer.Option("", help="YYYY-MM-DD (lineart/final)"),
+                    stage: str = typer.Option("", help="стем итерации, напр. magnific")):
+    """Скопировать вариант в набор под каноничным именем (источник не трогается)."""
+    from .curate import add_variant
+    _echo(add_variant(project, image_path, set_id, note=note,
+                      date=date or None, stage=stage or None))
+
+
+@app.command("set-winner")
+def set_winner_cmd(project: str, set_id: str, image_path: str):
+    """Переставить winner-указатель набора (пиксели не двигаются)."""
+    from .curate import set_winner
+    _echo(set_winner(project, set_id, image_path))
+
+
+@app.command("list-sets")
+def list_sets_cmd(project: str, kind: str = typer.Option("", help="фильтр по kind")):
+    """Инвентарь наборов: варианты, winner'ы."""
+    from .curate import list_sets
+    _echo(list_sets(project, kind=kind or None))
+
+
+@app.command("materialize-winners")
+def materialize_winners_cmd(project: str):
+    """Пересобрать папку winners/ из манифеста и истории."""
+    from .curate import materialize_winners
+    _echo(materialize_winners(project))
+
+
+@app.command("discard")
+def discard_cmd(project: str, image_path: str):
+    """Мягкое удаление в _TO_PURGE (hard-delete не существует)."""
+    from .curate import discard
+    _echo(discard(project, image_path))
+
+
+@app.command("adopt-set")
+def adopt_set_cmd(project: str, set_id: str, dir: str):
+    """Зарегистрировать существующую папку как историю набора (без перемещений)."""
+    from .curate import adopt_set
+    _echo(adopt_set(project, set_id, dir))
+
+
 def main():
     import sys
     for stream in (sys.stdout, sys.stderr):
