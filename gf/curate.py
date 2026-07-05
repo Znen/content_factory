@@ -60,10 +60,15 @@ def _unique(dir_: Path, filename: str) -> Path:
 
 
 def _copy_verified(src: Path, dest: Path) -> "str | None":
-    """copy2 + sha256 verify. Returns hash, or None on mismatch (copy removed)."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
-    h_src, h_dst = _sha256(src), _sha256(dest)
+    """copy2 + sha256 verify. Returns hash; None on I/O failure or mismatch
+    (any partial/bad copy is removed; source is never touched)."""
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        h_src, h_dst = _sha256(src), _sha256(dest)
+    except OSError:
+        dest.unlink(missing_ok=True)
+        return None
     if h_src != h_dst:
         dest.unlink(missing_ok=True)
         return None
@@ -95,10 +100,10 @@ def add_variant(project: str, image_path: str, set_id: str, note: str = "",
     dest = _unique(home, naming.canonical_name(kind, stem, idx, ext))
     h = _copy_verified(src, dest)
     if h is None:
-        return _err("hash mismatch after copy — source preserved, copy removed",
-                    "retry; check disk health")
+        return _err("copy failed (I/O error or hash mismatch) — source preserved, copy removed",
+                    "retry; check disk space/permissions")
     rec = {"op": "add_variant", "set_id": set_id, "path": _rel(media, dest),
-           "original_name": src.name, "source_path": str(src),
+           "original_name": src.name, "source_path": str(src.resolve()),
            "sha256": h, "note": note}
     if stage:
         rec["stage"] = stage

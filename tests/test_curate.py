@@ -52,7 +52,7 @@ def test_add_variant_hash_mismatch_keeps_source_removes_copy(tmp_path, monkeypat
     hashes = iter(["aaa", "bbb"])
     monkeypatch.setattr(curate, "_sha256", lambda p: next(hashes))
     out = curate.add_variant(str(proj), str(src), "cast/anna")
-    assert "error" in out and "hash" in out["error"].lower()
+    assert "error" in out and "copy failed" in out["error"].lower()
     assert src.exists()
     home = proj / "media" / "references" / "cast" / "anna"
     assert not home.exists() or not any(home.iterdir())
@@ -66,3 +66,21 @@ def test_add_variant_validation_errors(tmp_path):
     assert "error" in curate.add_variant(str(proj), str(png), "wat/anna")
     assert "error" in curate.add_variant(str(proj), str(png), "cast/anna", stage="x")
     assert "error" in curate.add_variant(str(proj), str(tmp_path / "nope.png"), "cast/anna")
+
+
+def test_add_variant_io_error_contained_no_leftover(tmp_path, monkeypatch):
+    import shutil as _sh
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+
+    def _boom(s, d):
+        from pathlib import Path as _P
+        _P(d).write_bytes(b"partial")   # simulate partial write
+        raise OSError("disk full")
+
+    monkeypatch.setattr(curate.shutil, "copy2", _boom)
+    out = curate.add_variant(str(proj), str(src), "cast/anna")
+    assert "error" in out and "copy failed" in out["error"].lower()
+    assert src.exists()
+    home = proj / "media" / "references" / "cast" / "anna"
+    assert not home.exists() or not any(home.iterdir())  # partial cleaned up
