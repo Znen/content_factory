@@ -14,7 +14,8 @@ from pathlib import Path
 
 from . import naming
 from .curate_state import (CurateStateError, append_ledger, load_manifest,
-                           media_root, now_iso, read_ledger, save_manifest)
+                           media_root, now_iso, read_ledger, save_manifest,
+                           MANIFEST_NAME, LEDGER_NAME)
 
 WINNERS_DIR = "winners"
 PURGE_DIR = "_TO_PURGE"
@@ -130,7 +131,7 @@ def set_winner(project: str, set_id: str, image_path: str) -> dict:
                     "add it with gf_add_variant, or check gf_list_sets")
     rel_check = _rel(media, target)
     top = rel_check.split("/", 1)[0]
-    if top in (WINNERS_DIR, PURGE_DIR):
+    if top in (WINNERS_DIR, PURGE_DIR) or rel_check in (MANIFEST_NAME, LEDGER_NAME):
         return _err(f"winner target must be a history file, not inside {top}/",
                     "point at the original under generated/ or references/ (see gf_list_sets)")
     try:
@@ -285,7 +286,10 @@ def list_sets(project: str, kind: "str | None" = None) -> dict:
 
 
 def discard(project: str, image_path: str) -> dict:
-    """Soft delete: copy→sha256→remove into media/_TO_PURGE/<date>/. Never hard-delete."""
+    """Soft delete: copy→sha256→remove into media/_TO_PURGE/<date>/. Never hard-delete.
+
+    After discarding a current winner the projection under winners/ is stale until
+    gf_set_winner or gf_materialize_winners is run (see the returned hint)."""
     project_dir = Path(project)
     media = media_root(project_dir)
     src = _resolve_in_media(media, image_path)
@@ -293,8 +297,12 @@ def discard(project: str, image_path: str) -> dict:
         return _err(f"file to discard must exist inside {media}",
                     "nothing outside the project media can be discarded")
     rel_src = _rel(media, src)
-    if rel_src.split("/", 1)[0] == PURGE_DIR:
+    top = rel_src.split("/", 1)[0]
+    if top == PURGE_DIR:
         return _err("already in _TO_PURGE")
+    if top == WINNERS_DIR or rel_src in (MANIFEST_NAME, LEDGER_NAME):
+        return _err(f"{rel_src} is managed state, not a discardable media file",
+                    "history files live under generated/ and references/")
     dest = _unique(media / PURGE_DIR / now_iso()[:10], src.name)
     h = _copy_verified(src, dest)
     if h is None:

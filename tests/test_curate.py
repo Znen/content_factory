@@ -283,3 +283,25 @@ def test_discard_unlink_failure_is_contained(tmp_path, monkeypatch):
     assert "error" in out and "removing the source failed" in out["error"]
     assert (proj / "media" / added["path"]).exists()          # source intact
     assert len(read_ledger(proj)) == before                    # no ledger record
+
+
+def test_discard_refuses_managed_state(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    curate.set_winner(str(proj), "cast/anna", added["path"])
+    for target in (".gf_winners.json", ".gf_media_ledger.jsonl",
+                   "winners/cast/anna.png"):
+        out = curate.discard(str(proj), target)
+        assert "error" in out, target
+    assert (proj / "media" / ".gf_winners.json").exists()
+    assert (proj / "media" / ".gf_media_ledger.jsonl").exists()
+    assert (proj / "media" / "winners" / "cast" / "anna.png").exists()
+
+
+def test_set_winner_refuses_state_files(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    curate.add_variant(str(proj), str(src), "cast/anna")
+    out = curate.set_winner(str(proj), "cast/anna", ".gf_media_ledger.jsonl")
+    assert "error" in out
