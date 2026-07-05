@@ -140,3 +140,45 @@ def test_materialize_reports_dangling_winner(tmp_path):
     (proj / "media" / added["path"]).unlink()      # история потеряна извне
     out = curate.materialize_winners(str(proj))
     assert out["dangling"] == ["cast/anna"]
+
+
+def test_set_winner_rejects_projection_and_purge_targets(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+    first = curate.set_winner(str(proj), "cast/anna", added["path"])
+    assert first["changed"] is True
+    # цель = проекция, которую вернул сам API — должно быть отвергнуто, манифест цел
+    out = curate.set_winner(str(proj), "cast/anna", first["projection"])
+    assert "error" in out
+    m = load_manifest(proj)
+    assert m["winners"]["cast/anna"]["path"] == added["path"]
+    assert (proj / "media" / first["projection"]).exists()  # проекция не тронута
+
+
+def test_set_winner_dotted_sibling_projection_preserved(tmp_path):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    a1 = curate.add_variant(str(proj), str(src), "cast/anna")
+    a2 = curate.add_variant(str(proj), str(src), "cast/anna.v2")
+    curate.set_winner(str(proj), "cast/anna.v2", a2["path"])
+    curate.set_winner(str(proj), "cast/anna", a1["path"])  # не должен снести anna.v2.png
+    assert (proj / "media" / "winners" / "cast" / "anna.v2.png").exists()
+    assert (proj / "media" / "winners" / "cast" / "anna.png").exists()
+
+
+def test_set_winner_projection_failure_is_soft(tmp_path, monkeypatch):
+    proj = _proj(tmp_path)
+    src = _img(tmp_path / "in", "a.png")
+    added = curate.add_variant(str(proj), str(src), "cast/anna")
+
+    def _boom(s, d):
+        raise OSError("locked")
+
+    monkeypatch.setattr(curate.shutil, "copy2", _boom)
+    out = curate.set_winner(str(proj), "cast/anna", added["path"])
+    assert "error" not in out and out["changed"] is True   # манифест = истина, обновлён
+    assert "projection_error" in out
+    m = load_manifest(proj)
+    assert m["winners"]["cast/anna"]["path"] == added["path"]
+    assert read_ledger(proj)[-1]["op"] == "set_winner"      # ledger в синхроне с манифестом

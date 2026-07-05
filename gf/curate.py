@@ -128,6 +128,11 @@ def set_winner(project: str, set_id: str, image_path: str) -> dict:
     if target is None or not target.is_file():
         return _err(f"winner target must be an existing file inside {media}",
                     "add it with gf_add_variant, or check gf_list_sets")
+    rel_check = _rel(media, target)
+    top = rel_check.split("/", 1)[0]
+    if top in (WINNERS_DIR, PURGE_DIR):
+        return _err(f"winner target must be a history file, not inside {top}/",
+                    "point at the original under generated/ or references/ (see gf_list_sets)")
     try:
         manifest = load_manifest(project_dir)
     except CurateStateError as e:
@@ -143,16 +148,22 @@ def set_winner(project: str, set_id: str, image_path: str) -> dict:
     manifest["winners"][set_id] = {"path": rel, "set_at": now_iso(),
                                    "history": history}
     save_manifest(project_dir, manifest)
-    proj_dir = media / WINNERS_DIR / kind
-    proj_dir.mkdir(parents=True, exist_ok=True)
-    for old in proj_dir.glob(f"{name}.*"):   # stale ext variants of this set
-        old.unlink(missing_ok=True)
-    proj = _projection_path(media, kind, name, target.suffix)
-    shutil.copy2(target, proj)
     append_ledger(project_dir, {"op": "set_winner", "set_id": set_id,
                                 "path": rel, "prev": prev})
-    return {"set_id": set_id, "path": rel, "prev": prev, "changed": True,
-            "projection": _rel(media, proj)}
+    result = {"set_id": set_id, "path": rel, "prev": prev, "changed": True}
+    try:
+        proj_dir = media / WINNERS_DIR / kind
+        proj_dir.mkdir(parents=True, exist_ok=True)
+        for old in proj_dir.iterdir():
+            if old.is_file() and old.stem == name:
+                old.unlink()
+        proj = _projection_path(media, kind, name, target.suffix)
+        shutil.copy2(target, proj)
+        result["projection"] = _rel(media, proj)
+    except OSError as e:
+        result["projection_error"] = f"projection refresh failed: {e}"
+        result["hint"] = "run gf_materialize_winners to rebuild winners/"
+    return result
 
 
 def materialize_winners(project: str) -> dict:
@@ -176,8 +187,12 @@ def materialize_winners(project: str) -> dict:
             dangling.append(set_id)
             continue
         proj = _projection_path(media, kind, name, src.suffix)
-        proj.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, proj)
+        try:
+            proj.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, proj)
+        except OSError:
+            dangling.append(set_id)
+            continue
         expected.add(proj.resolve())
         materialized += 1
     removed = 0
@@ -185,7 +200,10 @@ def materialize_winners(project: str) -> dict:
     if wdir.is_dir():
         for p in wdir.rglob("*"):
             if p.is_file() and p.resolve() not in expected:
-                p.unlink()
+                try:
+                    p.unlink()
+                except OSError:
+                    continue
                 removed += 1
     return {"materialized": materialized, "removed_stale": removed,
             "dangling": sorted(dangling)}
