@@ -10,7 +10,7 @@ sources: [docs.magnific.com/api-reference/text-to-image/flux-kontext-pro/overvie
 ---
 # Как писать промпт для Magnific Flux Kontext Pro
 
-Контекст: Flux Kontext Pro (Black Forest Labs, хостится на площадке Magnific) — модель **instruction-based editing**: даёшь исходное изображение (`input_image`, один референс) и текстовую **инструкцию**, что именно изменить, а не полное текстовое описание всей сцены заново. По каталог-странице площадки — «style and object consistency across prompts», годится под задачи Lion Films типа «поправить уже выбранный финальный кадр, не переделывая его с нуля» (смена фона/одежды/освещения при сохранении композиции и идентичности). Для сшивки **нескольких** референсов (лицо+локация) эта модель не подходит — только один `input_image`; для этого бери `seedream-v4-5-edit`.
+Контекст: Flux Kontext Pro (Black Forest Labs, хостится на площадке Magnific) — модель **instruction-based editing**: даёшь исходное изображение (`input_image`, один референс) и текстовую **инструкцию**, что именно изменить, а не полное текстовое описание всей сцены заново. По каталог-странице площадки — «style and object consistency across prompts», годится под задачи Lion Films типа «поправить уже выбранный финальный кадр, не переделывая его с нуля» (смена фона/одежды/освещения при сохранении композиции и идентичности). Для сшивки **нескольких** референсов (лицо+локация) эта модель не подходит — только один `input_image`; для этого бери `seedream-v4-5-edit`. Как и в остальных magnific-паспортах: имена полей в MCP-обёртке Hermes (`images_generate`) могут не совпадать с сырыми REST-полями ниже — при ошибке валидации доверяй фактическому ответу инструмента.
 
 ## Структура промпта
 
@@ -49,31 +49,31 @@ sources: [docs.magnific.com/api-reference/text-to-image/flux-kontext-pro/overvie
 - **Сложная многошаговая правка одним промптом** — «поменяй фон, одежду и время суток одновременно» одним вызовом даёт менее предсказуемый результат, чем три последовательных точечных вызова.
 - **Стилизованный/декоративный шрифт в тексте-правке** — по гайду BFL плохо рендерится; держись читаемых шрифтов и указывай их словами (`bold sans-serif`), не именем конкретного шрифта.
 
-## Примеры «задача → промпт»
+## Примеры «задача → плохо → хорошо»
 
 **1.** Задача (RU): «На готовом кадре поменять фон на пляж, человека не трогать»
-- Промпт: `Change the background to a sunny beach with turquoise water, while keeping the person in the exact same position, pose, and camera framing. Do not alter the person's face, clothing, or expression.`
+- Плохо: `beach background, sunny, turquoise water, person, high quality, no changes to face` — тег-суп вместо инструкции: нет глагола-действия, не сказано, что сохранить (позу/кадрирование), «no changes» — негатив-формулировка вместо явного «keeping...».
+- Хорошо: `Change the background to a sunny beach with turquoise water, while keeping the person in the exact same position, pose, and camera framing. Do not alter the person's face, clothing, or expression.`
 - Параметры: `input_image: <winner-кадр>`, `guidance_scale: 4`.
 
 **2.** Задача: сменить куртку персонажа на кожаную чёрную, не трогая остальное
-- Промпт: `Replace the man's jacket with a fitted black leather jacket, keeping his face, pose, and the background exactly unchanged.`
+- Плохо: `Transform him into a man in a black leather jacket` — глагол `transform` + местоимение «him»: рискует переработать персонажа целиком (потеря лица/идентичности) и неясно, кого редактировать, если в кадре двое.
+- Хорошо: `Replace the man's jacket with a fitted black leather jacket, keeping his face, pose, and the background exactly unchanged.`
 - Параметры: `input_image: <источник>`, `guidance_scale: 5`.
 
 **3.** Задача: правка текста на вывеске в кадре
-- Промпт: `Replace the sign text "OPEN" with "ЗАКРЫТО", keeping the same bold sans-serif font style and approximate text length.`
+- Плохо: `Change the sign to say ЗАКРЫТО in Helvetica Neue, make it look nice` — текст без кавычек и без формата `replace "X" with "Y"`, техническое имя шрифта вместо словесного описания, «make it look nice» — пустая инструкция.
+- Хорошо: `Replace the sign text "OPEN" with "ЗАКРЫТО", keeping the same bold sans-serif font style and approximate text length.`
 - Параметры: `input_image: <источник с вывеской>`.
 
-**4.** Задача: перевести дневной кадр в ночной, кинематографично
-- Промпт: `Change the lighting to a nighttime scene with cool blue moonlight and warm practical lights from windows, keeping the same composition and camera angle.`
-- Параметры: `input_image: <дневной кадр>`, `guidance_scale: 4`.
-
-**5.** Задача (RU): «Перевести фото в стиль импрессионистской живописи, не меняя композицию»
-- Промпт: `Convert the image into an impressionist painting style with visible brushstrokes, thick paint texture, and rich warm color depth, while keeping the exact same composition and subject placement.`
+**4.** Задача (RU): «Перевести фото в стиль импрессионистской живописи, не меняя композицию»
+- Плохо: `Make it artistic and painterly, more beautiful` — «сделай художественно» без имени конкретного стиля или его признаков даёт случайную стилизацию; композиция не защищена явным «keeping...».
+- Хорошо: `Convert the image into an impressionist painting style with visible brushstrokes, thick paint texture, and rich warm color depth, while keeping the exact same composition and subject placement.`
 - Параметры: `input_image: <источник>`, `guidance_scale: 3` (ниже — чтобы не задавить стиль слишком буквальным следованием инструкции).
 
-**6.** Задача: последовательная правка в два шага (сначала фон, потом реквизит) — иллюстрация «начинай с простого и итерируй»
-- Шаг 1 промпт: `Change the background to a foggy forest at dawn, keeping the person's position, pose, and framing exactly unchanged.`
-- Шаг 2 промпт (на результате шага 1): `Add a lit lantern in the person's right hand, keeping everything else in the image unchanged.`
+**5.** Задача: поменять фон И добавить реквизит (сложная правка)
+- Плохо: одним вызовом — `Change the background to a foggy forest at dawn, add a lit lantern in the person's right hand, and adjust the lighting to match` — три изменения в одной инструкции дают менее предсказуемый результат и труднее локализовать, что именно пошло не так.
+- Хорошо (два последовательных вызова): шаг 1 — `Change the background to a foggy forest at dawn, keeping the person's position, pose, and framing exactly unchanged.`; шаг 2 (на результате шага 1) — `Add a lit lantern in the person's right hand, keeping everything else in the image unchanged.`
 - Параметры: `input_image` шага 2 — результат шага 1, не исходный кадр; `guidance_scale: 4` на обоих шагах.
 
 ## Когда НЕ брать эту модель

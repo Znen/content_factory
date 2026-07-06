@@ -55,24 +55,29 @@ sources: [docs.magnific.com/api-reference/mystic/mystic, docs.magnific.com/api-r
 - **`filter_nsfw` блокирует легитимный контент** (купальники, батальные сцены, медицинские сюжеты) без возможности отключить — переформулируй эвфемизмом (`swimwear` вместо описания тела крупным планом, `battle aftermath` вместо explicit gore) вместо повторных попыток с тем же промптом.
 - **`adherence` слишком низкий при заданном `style_reference`** — промпт теряет вес, результат «плывёт» к референсу сильнее, чем нужно по тексту задачи; поднимай `adherence`, если стиль референса перебивает конкретику промпта.
 
-## Примеры «задача → промпт»
+## Примеры «задача → плохо → хорошо»
 
 **1.** Задача (RU): «Портрет пожилого рыбака на закате, кинематографично, крупный план»
-- Промпт: `A weathered elderly fisherman with a grey beard and deep sun-worn wrinkles, standing on a wooden pier at golden hour, warm rim light from the setting sun, close-up portrait, cinematic mood.`
+- Плохо: `masterpiece, best quality, old fisherman, sunset, cinematic, 8k, (weathered face:1.3), no blur, no cartoon` — SDXL-привычки: quality-теги и веса в скобках здесь не парсятся, «no blur/no cartoon» — негатив-формулировка при отсутствующем negative-поле, тег-суп вместо короткой связной фразы.
+- Хорошо: `A weathered elderly fisherman with a grey beard and deep sun-worn wrinkles, standing on a wooden pier at golden hour, warm rim light from the setting sun, close-up portrait, cinematic mood.`
 - Параметры: `model: editorial_portraits`, `aspect_ratio: portrait_2_3`, `resolution: 2k`.
 
 **2.** Задача: рекламный кадр парфюма, студийный свет (без референсов)
-- Промпт: `A frosted glass perfume bottle with a brushed gold cap on a black marble surface, soft diffused studio lighting with crisp highlights, minimalist commercial product photography.`
+- Плохо: тот же текст промпта, но `creative_detailing: 95, hdr: 90` — выкрученные детализация/hdr дают «пере-хрустящий AI-look» вместо чистого продуктового фотореализма; типовой фейл параметров, а не текста.
+- Хорошо: `A frosted glass perfume bottle with a brushed gold cap on a black marble surface, soft diffused studio lighting with crisp highlights, minimalist commercial product photography.`
 - Параметры: `model: realism`, `aspect_ratio: square_1_1`, `creative_detailing: 45`.
 
 **3.** Задача: сохранить композицию черновика (ComfyUI-скетч позы), но дать кино-фактуру
-- Промпт: `A knight standing in a ruined cathedral, dust particles in shafts of light, dramatic chiaroscuro lighting, cinematic film still.`
+- Плохо: `Exact same pose and composition as the reference image: a knight standing in a cathedral, cinematic` — «как на референсе» словами не работает: текст промпта не адресует референс, удержание композиции — работа `structure_reference` + `structure_strength`, а не формулировки.
+- Хорошо: `A knight standing in a ruined cathedral, dust particles in shafts of light, dramatic chiaroscuro lighting, cinematic film still.`
 - Параметры: `structure_reference: <черновик>`, `structure_strength: 65`, `model: super_real`.
 
 **4.** Задача: персонаж с фирменным LoRA-пресетом Lion Films в новой сцене
-- Промпт: `@hero_lora_id::120 walking through a rain-soaked neon-lit alley at night, cinematic color grading, wide shot.`
-- Параметры: `characters: [{id: "hero_lora_id", strength: 120}]`, `model: flexible` (LoRA-совместимый), без `structure_reference`/`style_reference` (иначе LoRA будет молча проигнорирован).
+- Плохо: `@hero_lora_id walking through a neon alley at night` + `model: super_real`, `style_reference: <мудборд>` — LoRA молча игнорируется и при `super_real`, и при заданном `style_reference` (API не вернёт ошибку — по доке «will not return errors for incompatible combinations»): персонаж просто не появится, и непонятно почему.
+- Хорошо: `@hero_lora_id::120 walking through a rain-soaked neon-lit alley at night, cinematic color grading, wide shot.`
+- Параметры: `characters: [{id: "hero_lora_id", strength: 120}]`, `model: flexible` (LoRA-совместимый), без `structure_reference`/`style_reference`.
 
 **5.** Задача (RU): «Пейзаж локации в фирменной цветовой палитре бренда (тёмно-синий + золото)»
-- Промпт: `A misty mountain valley at dawn, cinematic wide establishing shot, muted atmospheric color grading.`
+- Плохо: `A mountain valley at dawn, brand colors #0B1F3A and #C9A24B only, no other colors, no oversaturation` — hex-коды в тексте промпта не парсятся (для палитры есть параметр `colors`), «no other colors / no oversaturation» — мёртвая негатив-формулировка.
+- Хорошо: `A misty mountain valley at dawn, cinematic wide establishing shot, muted atmospheric color grading.`
 - Параметры: `colors: [{color:"#0B1F3A", weight:0.8}, {color:"#C9A24B", weight:0.6}]`, `model: realism`, `resolution: 4k`.

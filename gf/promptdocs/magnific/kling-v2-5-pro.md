@@ -50,29 +50,29 @@ sources: [docs.magnific.com/api-reference/image-to-video/kling-v2.5-pro/post-kli
 - **Расчёт на явную камеру по умолчанию** — если камера должна стоять на месте, это надо сказать явно (`static locked-off shot`); без этого модель может добавить лёгкое движение камеры по своему усмотрению.
 - **`negative_prompt` в стиле SDXL** (`low quality, blurry, watermark`) — здесь полезнее конкретные нежелательные движения/артефакты видео (`no face morphing, no flickering, no extra limbs appearing mid-motion`), а не общий список «качества».
 
-## Примеры «задача → промпт»
+## Примеры «задача → плохо → хорошо»
 
 **1.** Задача (RU): «Оживить winner-портрет: лёгкий поворот головы, ветер в волосах»
-- `prompt`: `She slowly turns her head to look toward the camera, hair gently moving in a light breeze, soft golden-hour light. Static camera, no camera movement.`
-- `negative_prompt`: `no face morphing, no extra people, no camera shake`
+- Плохо: `beautiful woman, golden hour, cinematic, 8k, masterpiece, ultra detailed` — статичное описание картинки в SDXL-тегах: ни слова о ДВИЖЕНИИ (композиция уже задана кадром `image`), камера не оговорена — модель додумает сама.
+- Хорошо: `prompt`: `She slowly turns her head to look toward the camera, hair gently moving in a light breeze, soft golden-hour light. Static camera, no camera movement.` / `negative_prompt`: `no face morphing, no extra people, no camera shake`
 - Параметры: `image: <winner.png>`, `duration: "5"`, `cfg_scale: 0.5`.
 
 **2.** Задача: короткий рекламный клип продукта — камера медленно наезжает
-- `prompt`: `Camera slowly pushes in toward the perfume bottle, soft studio light glinting on the glass, steam-like light rays drifting subtly in the background.`
-- `negative_prompt`: `no shaky camera, no objects appearing or disappearing, no text overlays`
+- Плохо: `Camera orbits 360 degrees around the bottle while zooming in and out, lights flashing, fast dynamic motion` — несколько разнонаправленных движений камеры сразу → классическое motion distortion; для продукта нужно ОДНО простое движение.
+- Хорошо: `prompt`: `Camera slowly pushes in toward the perfume bottle, soft studio light glinting on the glass, steam-like light rays drifting subtly in the background.` / `negative_prompt`: `no shaky camera, no objects appearing or disappearing, no text overlays`
 - Параметры: `image: <product-still.png>`, `duration: "5"`, `cfg_scale: 0.6`.
 
 **3.** Задача: пейзажный установочный план (кино-превиз), камера открывает панораму
-- `prompt`: `Camera slowly pans right to reveal the full mountain valley, mist drifting gently across the peaks, birds flying in the distance.`
-- `negative_prompt`: `no abrupt cuts, no distortion of the mountains, no flickering`
+- Плохо: `A vast desert with sand dunes at noon, harsh sunlight` при стартовом кадре с горной долиной в тумане — промпт описывает другую сцену, чем на `image`: сцена не «перепишется», сломается связность движения; сцену меняют через кадр (Mystic/Seedream), не через видео-промпт.
+- Хорошо: `prompt`: `Camera slowly pans right to reveal the full mountain valley, mist drifting gently across the peaks, birds flying in the distance.` / `negative_prompt`: `no abrupt cuts, no distortion of the mountains, no flickering`
 - Параметры: `image: <landscape-still.png>`, `duration: "10"`, `cfg_scale: 0.45`.
 
 **4.** Задача (RU): «Персонаж делает шаг вперёд и смотрит в камеру, плащ развевается»
-- `prompt`: `He takes a single step forward and looks directly into the camera, his coat swaying with the motion, dramatic side lighting. Camera remains static.`
-- `negative_prompt`: `no morphing face, no extra limbs, no background objects moving erratically`
+- Плохо: `He moves` + `negative_prompt: low quality, blurry, watermark, bad anatomy` + `cfg_scale: 1.0` — действие без направления/скорости, SDXL-негатив вместо нежелательных ДВИЖЕНИЙ, cfg на максимуме даст «дёрганую» физику плаща.
+- Хорошо: `prompt`: `He takes a single step forward and looks directly into the camera, his coat swaying with the motion, dramatic side lighting. Camera remains static.` / `negative_prompt`: `no morphing face, no extra limbs, no background objects moving erratically`
 - Параметры: `image: <hero-still.png>`, `duration: "5"`, `cfg_scale: 0.55`.
 
 **5.** Задача: интерьерная сцена кафе, пар от кофе, лёгкое покачивание камеры на плече
-- `prompt`: `Steam rises gently from the coffee cup on the table, warm afternoon light through the window, subtle handheld camera sway.`
-- `negative_prompt`: `no strong camera shake, no people appearing suddenly, no flickering light`
+- Плохо: `Cozy cafe atmosphere, aesthetic, warm vibes, cinematic mood` — «вайбы» без единого конкретного движения: модель не знает, что должно двигаться (пар? камера? люди?), результат — случайная анимация.
+- Хорошо: `prompt`: `Steam rises gently from the coffee cup on the table, warm afternoon light through the window, subtle handheld camera sway.` / `negative_prompt`: `no strong camera shake, no people appearing suddenly, no flickering light`
 - Параметры: `image: <cafe-still.png>`, `duration: "5"`, `cfg_scale: 0.5`.

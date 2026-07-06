@@ -45,31 +45,32 @@ sources: [docs.magnific.com/api-reference/text-to-image/post-seedream-v4-5-edit,
 - **Тег-суп вместо связной фразы** — модель ориентирована на текстовое описание (`prompt` — «description»), а не на список тегов через запятую; конкретные фразы держат композицию лучше голых существительных.
 - **Расчёт на `guidance_scale`** — параметра нет в этом эндпоинте; если нужен более строгий/более творческий баланс промпт-vs-референс, регулируй это словами в самом промпте (`closely following the reference's exact pose` vs `loosely inspired by`), не числовым параметром.
 
-## Примеры «задача → промпт»
+## Примеры «задача → плохо → хорошо»
 
 **1.** Задача (RU, 2 референса): «взять актёра с фото 1, поместить в интерьер кафе с фото 2, сохранить лицо»
-- Промпт: `Place the man from the first reference image sitting at a window table inside the café interior from the second reference image. Keep his exact facial features, hair, and skin tone unchanged from the first image, and match the café's warm afternoon lighting from the second image.`
+- Плохо: `man, café interior, sitting at table, keep face, photorealistic, high quality` — тег-суп без глагола-инструкции и без ordinal-привязки: не сказано, из какого референса человек, из какого интерьер и чьё лицо сохранять — детали «потекут» между источниками.
+- Хорошо: `Place the man from the first reference image sitting at a window table inside the café interior from the second reference image. Keep his exact facial features, hair, and skin tone unchanged from the first image, and match the café's warm afternoon lighting from the second image.`
 - Параметры: `reference_images: [actor.jpg, cafe_interior.jpg]`, `aspect_ratio: widescreen_16_9`.
 
 **2.** Задача (3 референса): «персонаж + костюм + локация, кинематографично»
-- Промпт: `Using the man from the first reference image as the subject, the outfit from the second reference image as his clothing, and the mountain village street from the third reference image as the setting, create a cinematic wide shot of him walking through the village at dusk. Keep his facial features and body proportions from the first image, and match the outfit's exact colors and textures from the second image.`
+- Плохо: `Cinematic wide shot of the man in the outfit in the village at dusk, don't change his face, no wrong colors on the jacket` — референсы не адресованы порядково («the man», «the outfit» — какие именно?), «don't/no» — негатив-формулировки при отсутствующем negative-поле.
+- Хорошо: `Using the man from the first reference image as the subject, the outfit from the second reference image as his clothing, and the mountain village street from the third reference image as the setting, create a cinematic wide shot of him walking through the village at dusk. Keep his facial features and body proportions from the first image, and match the outfit's exact colors and textures from the second image.`
 - Параметры: `reference_images: [face.jpg, outfit.jpg, village.jpg]`, `aspect_ratio: cinematic_21_9`.
 
 **3.** Задача (1 референс, чистое редактирование без сшивки): «поменять время суток на закатное, не трогая композицию»
-- Промпт: `Keep the exact same composition, subject position, and camera angle as the reference image, but change the lighting to a warm golden-hour sunset with long shadows.`
+- Плохо: `Golden hour sunset scene` + `guidance_scale: 8` — не сказано, что композицию/позу сохранить (модель пересоберёт сцену заново), плюс несуществующий для этого эндпоинта параметр `guidance_scale`.
+- Хорошо: `Keep the exact same composition, subject position, and camera angle as the reference image, but change the lighting to a warm golden-hour sunset with long shadows.`
 - Параметры: `reference_images: [source.jpg]`, `seed` тот же, что и прошлый прогон, если нужна повторяемость.
 
-**4.** Задача: продуктовая линейка — одинаковый стиль на 3 товарах из мудборда
-- Промпт: `Generate a studio product photograph of a matte ceramic mug, matching the lighting setup, color grading, and background style from the reference image, with the mug centered and a soft shadow beneath it.`
-- Параметры: `reference_images: [style_moodboard.jpg]`, `aspect_ratio: classic_4_3`.
-
-**5.** Задача (RU, 4 референца — реквизит continuity): «герой с фото 1, в куртке с фото 2, держит реквизит с фото 3, на фоне локации с фото 4»
-- Промпт: `Combine the woman from the first reference image, the leather jacket from the second reference image, the vintage camera prop from the third reference image, and the rooftop skyline from the fourth reference image into one cinematic scene: she stands on the rooftop at dusk, wearing the jacket exactly as shown, holding the camera. Preserve her facial features from the first image and the jacket's texture and color from the second image.`
+**4.** Задача (RU, 4 референса — реквизит continuity): «герой с фото 1, в куртке с фото 2, держит реквизит с фото 3, на фоне локации с фото 4»
+- Плохо: `woman, leather jacket, vintage camera, rooftop, dusk, cinematic, preserve identity` — четыре источника свалены в один список тегов без указания, что откуда: модель вольна взять куртку «по мотивам», а лицо усреднить.
+- Хорошо: `Combine the woman from the first reference image, the leather jacket from the second reference image, the vintage camera prop from the third reference image, and the rooftop skyline from the fourth reference image into one cinematic scene: she stands on the rooftop at dusk, wearing the jacket exactly as shown, holding the camera. Preserve her facial features from the first image and the jacket's texture and color from the second image.`
 - Параметры: `reference_images: [4 файла]`, `aspect_ratio: cinematic_21_9`, `enable_safety_checker: true`.
 
-**6.** Задача (RU, 5 референсов — предел модели): «сцена на пять элементов: герой, героиня, локация, реквизит, референс-поза»
-- Промпт: `Using the man from the first reference image and the woman from the second reference image as the two subjects, place them in the diner interior from the third reference image, both seated at the counter holding the vintage radio prop from the fourth reference image, matching the sitting pose shown in the fifth reference image. Preserve both subjects' facial features exactly as shown in their respective source images.`
-- Параметры: `reference_images: [5 файлов — это максимум модели]`, `aspect_ratio: widescreen_16_9`. Если в брифе больше пяти опорных фото — заранее отбери пять самых важных для этой конкретной сцены, не полагайся на то, что лишние сами отсеются предсказуемо.
+**5.** Задача (RU, 5 референсов — предел модели): «сцена на пять элементов: герой, героиня, локация, реквизит, референс-поза»
+- Плохо: передать 7 референсов (герой, героиня, локация, реквизит, поза, мудборд света, мудборд цвета) «на всякий случай» — модель принимает максимум 5; лишние отбросятся непредсказуемо или вызовут ошибку, а какие именно — неизвестно.
+- Хорошо: `Using the man from the first reference image and the woman from the second reference image as the two subjects, place them in the diner interior from the third reference image, both seated at the counter holding the vintage radio prop from the fourth reference image, matching the sitting pose shown in the fifth reference image. Preserve both subjects' facial features exactly as shown in their respective source images.`
+- Параметры: `reference_images: [5 файлов — это максимум модели]`, `aspect_ratio: widescreen_16_9`. Свет/цвет из выкинутых мудбордов — словами в промпте, не шестым референсом.
 
 ## Когда НЕ брать эту модель
 
