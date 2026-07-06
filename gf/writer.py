@@ -103,7 +103,9 @@ def _build_user(task: str, style: "str | None", refs: "list | None",
     return "\n\n".join(parts)
 
 
-def _call_claude(client, settings, system: str, user: str) -> "tuple[dict, object]":
+def _call_claude(client, settings, system: str, user: str, usage_acc: dict) -> dict:
+    """Один forced tool call (+1 ретрай на битой схеме). Usage КАЖДОГО ответа
+    добавляется в usage_acc — каждый вызов оплачен, даже если схема битая."""
     import anthropic
     last = None
     for _ in range(2):  # 1 попытка + 1 ретрай на битой схеме
@@ -118,10 +120,13 @@ def _call_claude(client, settings, system: str, user: str) -> "tuple[dict, objec
             )
         except anthropic.APIError as e:
             raise WriterError(f"Claude API error: {e}") from e
+        usage = getattr(resp, "usage", None)
+        usage_acc["in"] += getattr(usage, "input_tokens", 0) or 0
+        usage_acc["out"] += getattr(usage, "output_tokens", 0) or 0
         block = next((b for b in resp.content if getattr(b, "type", "") == "tool_use"), None)
         data = dict(block.input) if block is not None else {}
         if isinstance(data.get("prompt"), str) and data["prompt"].strip():
-            return data, resp.usage
+            return data
         last = data
     raise WriterError(f"Райтер вернул невалидный ответ дважды: {last!r}")
 
@@ -163,11 +168,16 @@ def write_prompt(project: str, target: str, task: str, refs: "list | None" = Non
     system = _SYSTEM_ROLE + passport["body"]
     user = _build_user(task, load_style(project), refs, aspect, extra)
     client = client or _make_client()
-    data, usage = _call_claude(client, settings, system, user)
-    cost = pricing.estimate_llm(settings.writer_model,
-                                getattr(usage, "input_tokens", 0),
-                                getattr(usage, "output_tokens", 0))
-    budget.log_cost(Path(project), "writer", 1, cost, note=f"prompt {target}")
+    usage_acc = {"in": 0, "out": 0}
+    try:
+        data = _call_claude(client, settings, system, user, usage_acc)
+    finally:
+        # каждый ответ API оплачен — логируем суммарную стоимость всех попыток,
+        # даже если райтер в итоге упал (битая схема дважды / APIError на ретрае)
+        if usage_acc["in"] or usage_acc["out"]:
+            cost = pricing.estimate_llm(settings.writer_model,
+                                        usage_acc["in"], usage_acc["out"])
+            budget.log_cost(Path(project), "writer", 1, cost, note=f"prompt {target}")
     result = {"prompt": data["prompt"].strip(), "negative": data.get("negative"),
               "params": data.get("params"), "notes": data.get("notes"),
               "target": target, "log_path": None, "warning": None}

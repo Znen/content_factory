@@ -170,6 +170,11 @@ def test_write_prompt_retries_once_on_bad_schema(tmp_path):
                               settings=_settings(), client=fake, root=root)
     assert out["prompt"] == "cinematic photo, rain"
     assert len(fake.calls) == 2
+    # стоимость — СУММА обоих оплаченных вызовов: 2 x (1000 in / 200 out)
+    from gf import pricing
+    cost_log = (tmp_path / "media" / ".gf_cost_log.jsonl").read_text(encoding="utf-8")
+    rec = json.loads(cost_log.strip().splitlines()[-1])
+    assert rec["cost_usd"] == pricing.estimate_llm("claude-sonnet-5", 2000, 400)
 
 
 def test_write_prompt_fails_after_two_bad_schemas(tmp_path):
@@ -178,6 +183,18 @@ def test_write_prompt_fails_after_two_bad_schemas(tmp_path):
         writer.write_prompt(str(tmp_path), "comfyui/sdxl-test", "задача",
                             settings=_settings(),
                             client=_FakeClient([{"nope": 1}, {"nope": 2}]), root=root)
+
+
+def test_write_prompt_failure_still_logs_cost(tmp_path):
+    root = _docs(tmp_path)
+    with pytest.raises(writer.WriterError):
+        writer.write_prompt(str(tmp_path), "comfyui/sdxl-test", "задача",
+                            settings=_settings(),
+                            client=_FakeClient([{"nope": 1}, {"nope": 2}]), root=root)
+    # оба вызова оплачены — стоимость логируется даже при отказе
+    cost_log = (tmp_path / "media" / ".gf_cost_log.jsonl").read_text(encoding="utf-8")
+    rec = json.loads(cost_log.strip().splitlines()[-1])
+    assert rec["backend"] == "writer" and rec["cost_usd"] > 0
 
 
 def test_write_prompt_disabled_raises(tmp_path):
