@@ -32,6 +32,10 @@ def _parse_passport(path: Path) -> dict:
     if not isinstance(meta, dict) or not _REQUIRED_META <= set(meta):
         missing = sorted(_REQUIRED_META - set(meta or {}))
         raise WriterError(f"Passport {path}: во frontmatter нет ключей {missing}")
+    # YAML парсит неквотированный `updated: 2026-07-06` как datetime.date —
+    # не JSON-сериализуемо (падает в gf_list_targets/CLI echo и живом MCP-ответе).
+    if hasattr(meta.get("updated"), "isoformat"):
+        meta["updated"] = meta["updated"].isoformat()
     return {"meta": meta, "body": parts[2].strip()}
 
 
@@ -120,6 +124,12 @@ def _call_claude(client, settings, system: str, user: str, usage_acc: dict) -> d
             )
         except anthropic.APIError as e:
             raise WriterError(f"Claude API error: {e}") from e
+        except TypeError as e:
+            # Anthropic SDK валидирует auth-заголовки лениво (внутри _build_request,
+            # не в конструкторе клиента) и на отсутствующем ключе кидает голый
+            # TypeError, а не APIError — без этого перехвата смоук без ключа
+            # падает traceback'ом вместо чистого {"error": ...} (fail-closed).
+            raise WriterError(f"Claude API error (клиент/ключ): {e}") from e
         usage = getattr(resp, "usage", None)
         usage_acc["in"] += getattr(usage, "input_tokens", 0) or 0
         usage_acc["out"] += getattr(usage, "output_tokens", 0) or 0

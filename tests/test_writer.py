@@ -58,8 +58,18 @@ def test_real_promptdocs_have_valid_frontmatter():
     """Каждый настоящий паспорт в gf/promptdocs валиден (Ф-П1 quality gate)."""
     if not writer.PROMPTDOCS.exists():
         pytest.skip("promptdocs ещё не созданы")
-    for t in writer.list_targets():
+    targets = writer.list_targets()
+    for t in targets:
         assert t["target"], t
+    # gf_list_targets/CLI echo json.dumps() результат напрямую — регрессия на
+    # неквотированный `updated: YYYY-MM-DD` (YAML -> datetime.date, не сериализуется).
+    json.dumps({"targets": targets})
+
+
+def test_list_targets_updated_is_json_safe_string(tmp_path):
+    targets = writer.list_targets(root=_docs(tmp_path))
+    assert targets[0]["updated"] == "2026-07-06"
+    json.dumps(targets)
 
 
 def _settings(enabled=True):
@@ -183,6 +193,26 @@ def test_write_prompt_fails_after_two_bad_schemas(tmp_path):
         writer.write_prompt(str(tmp_path), "comfyui/sdxl-test", "задача",
                             settings=_settings(),
                             client=_FakeClient([{"nope": 1}, {"nope": 2}]), root=root)
+
+
+def test_write_prompt_no_key_raises_clean_writer_error(tmp_path):
+    """Anthropic SDK валидирует auth-заголовки лениво: без ANTHROPIC_API_KEY
+    `messages.create()` кидает голый TypeError (не APIError). Должен дойти до
+    вызывающего как чистый WriterError, а не как traceback (fail-closed)."""
+    root = _docs(tmp_path)
+
+    class _NoKeyClient:
+        class messages:
+            @staticmethod
+            def create(**kw):
+                raise TypeError(
+                    '"Could not resolve authentication method. Expected one of '
+                    'api_key, auth_token, or credentials to be set."'
+                )
+
+    with pytest.raises(writer.WriterError, match="клиент/ключ"):
+        writer.write_prompt(str(tmp_path), "comfyui/sdxl-test", "задача",
+                            settings=_settings(), client=_NoKeyClient(), root=root)
 
 
 def test_write_prompt_failure_still_logs_cost(tmp_path):
