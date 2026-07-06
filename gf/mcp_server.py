@@ -8,8 +8,23 @@ from . import pricing, budget as budget_mod, media, writer as writer_mod
 from .backends import nano as nano_mod, comfyui as comfyui_mod
 
 
+def _maybe_rewrite(project, task, negative, target, *, settings, writer):
+    """Авто-путь: fail-open. Возвращает (prompt, negative, prompt_log, writer_skipped)."""
+    try:
+        res = writer.write_prompt(project, target, task, settings=settings)
+    except writer.WriterError as e:
+        return task, negative, None, str(e)
+    return res["prompt"], (negative or res.get("negative") or ""), res.get("log_path"), None
+
+
 def _generate_draft_impl(project: str, prompt: str, n: int = 4, negative: str = "",
-                         seed: int = 0, *, settings, comfy=comfyui_mod, budget=budget_mod) -> dict:
+                         seed: int = 0, raw: bool = False, *, settings,
+                         comfy=comfyui_mod, budget=budget_mod, writer=writer_mod) -> dict:
+    prompt_used, neg_used, prompt_log, skipped = prompt, negative, None, None
+    if not raw:
+        prompt_used, neg_used, prompt_log, skipped = _maybe_rewrite(
+            project, prompt, negative, settings.writer_draft_target,
+            settings=settings, writer=writer)
     project_dir = Path(project)
     date = media.today()
     out_dir = media.drafts_dir(project_dir, date)
@@ -18,16 +33,23 @@ def _generate_draft_impl(project: str, prompt: str, n: int = 4, negative: str = 
     if not gate["allowed"]:
         return {"error": gate["reason"], "images": [], "backend": "comfyui",
                 "cost_usd": cost, "spent_usd": gate["spent"]}
-    saved = comfy.generate(prompt, out_dir, server_url=settings.comfyui_url,
+    saved = comfy.generate(prompt_used, out_dir, server_url=settings.comfyui_url,
                            ckpt=settings.comfyui_ckpt, workflow_path=settings.comfyui_workflow or None,
-                           n=n, negative=negative, seed=seed)
+                           n=n, negative=neg_used, seed=seed)
     budget.log_cost(project_dir, "comfyui", n, cost, note=f"draft {date}")
     return {"images": [str(p) for p in saved], "backend": "comfyui",
-            "cost_usd": cost, "spent_usd": budget.spent(project_dir)}
+            "cost_usd": cost, "spent_usd": budget.spent(project_dir),
+            "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped}
 
 
 def _generate_final_impl(project: str, prompt: str, refs: "list | None" = None, aspect: str = "9:16",
-                         *, settings, nano=nano_mod, budget=budget_mod) -> dict:
+                         raw: bool = False, *, settings, nano=nano_mod, budget=budget_mod,
+                         writer=writer_mod) -> dict:
+    prompt_used, prompt_log, skipped = prompt, None, None
+    if not raw:
+        prompt_used, _neg_ignored, prompt_log, skipped = _maybe_rewrite(
+            project, prompt, "", settings.writer_final_target,
+            settings=settings, writer=writer)
     project_dir = Path(project)
     refs = [Path(r) for r in (refs or [])]
     date = media.today()
@@ -38,11 +60,12 @@ def _generate_final_impl(project: str, prompt: str, refs: "list | None" = None, 
         return {"error": gate["reason"], "images": [], "backend": "nano",
                 "cost_usd": cost, "spent_usd": gate["spent"]}
     password = _nano_password(settings)
-    saved = nano.generate(prompt, refs, out_dir, server_url=settings.nano_server_url,
+    saved = nano.generate(prompt_used, refs, out_dir, server_url=settings.nano_server_url,
                           password=password, timeout=settings.nano_timeout, aspect=aspect)
     budget.log_cost(project_dir, "nano", 1, cost, note=f"final {date}")
     return {"images": [str(p) for p in saved], "backend": "nano",
-            "cost_usd": cost, "spent_usd": budget.spent(project_dir)}
+            "cost_usd": cost, "spent_usd": budget.spent(project_dir),
+            "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped}
 
 
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
@@ -94,15 +117,17 @@ def build_server():
 
     @mcp.tool()
     def gf_generate_draft(project: str, prompt: str, n: int = 4,
-                          negative: str = "", seed: int = 0) -> dict:
-        """Generate N cheap ComfyUI drafts into <project>/media/generated/<date>/_drafts/."""
-        return _generate_draft_impl(project, prompt, n, negative, seed, settings=settings)
+                          negative: str = "", seed: int = 0, raw: bool = False) -> dict:
+        """Generate N cheap ComfyUI drafts. prompt = задача (райтер перепишет);
+        raw=True — текст уходит в модель дословно."""
+        return _generate_draft_impl(project, prompt, n, negative, seed, raw, settings=settings)
 
     @mcp.tool()
     def gf_generate_final(project: str, prompt: str, refs: "list | None" = None,
-                          aspect: str = "9:16") -> dict:
-        """Generate a client-facing final with Nano Banana (up to 4 multi-image refs)."""
-        return _generate_final_impl(project, prompt, refs, aspect, settings=settings)
+                          aspect: str = "9:16", raw: bool = False) -> dict:
+        """Generate a client-facing final with Nano Banana. prompt = задача (райтер перепишет);
+        raw=True — дословно."""
+        return _generate_final_impl(project, prompt, refs, aspect, raw, settings=settings)
 
     @mcp.tool()
     def gf_write_prompt(project: str, target: str, task: str, refs: "list | None" = None,

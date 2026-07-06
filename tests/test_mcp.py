@@ -36,7 +36,7 @@ class _FakeNano:
 
 def test_draft_impl_generates_and_is_free(tmp_path):
     s = _settings(tmp_path)
-    out = _generate_draft_impl(str(tmp_path), "a cat", 2, "", 0,
+    out = _generate_draft_impl(str(tmp_path), "a cat", 2, "", 0, raw=True,
                                settings=s, comfy=_FakeComfy())
     assert out["backend"] == "comfyui"
     assert out["cost_usd"] == 0.0
@@ -46,7 +46,7 @@ def test_draft_impl_generates_and_is_free(tmp_path):
 
 def test_final_impl_generates_and_logs_cost(tmp_path):
     s = _settings(tmp_path)
-    out = _generate_final_impl(str(tmp_path), "cinematic", [], "9:16",
+    out = _generate_final_impl(str(tmp_path), "cinematic", [], "9:16", raw=True,
                                settings=s, nano=_FakeNano())
     assert out["backend"] == "nano"
     assert out["cost_usd"] > 0
@@ -57,12 +57,80 @@ def test_final_impl_generates_and_logs_cost(tmp_path):
 
 def test_final_impl_blocked_by_cap(tmp_path):
     s = _settings(tmp_path, cap=0.0)
-    out = _generate_final_impl(str(tmp_path), "cinematic", [], "9:16",
+    out = _generate_final_impl(str(tmp_path), "cinematic", [], "9:16", raw=True,
                                settings=s, nano=_FakeNano())
     assert "error" in out
     assert out["images"] == []
     # nothing generated
     assert not any((tmp_path / "media").rglob("nano_*.png"))
+
+
+class _OkAutoWriter:
+    from gf.writer import WriterError  # class attr, чтобы except writer.WriterError работал
+
+    def __init__(self):
+        self.calls = []
+
+    def write_prompt(self, project, target, task, refs=None, aspect=None, extra=None, *, settings):
+        self.calls.append(target)
+        return {"prompt": "REWRITTEN", "negative": "auto-neg", "params": {"steps": 50},
+                "notes": None, "target": target, "log_path": "/tmp/log.md", "warning": None}
+
+
+class _FailAutoWriter:
+    from gf.writer import WriterError
+
+    def write_prompt(self, *a, **kw):
+        raise self.WriterError("ключ протух")
+
+
+def test_draft_raw_true_bypasses_writer(tmp_path):
+    w = _OkAutoWriter()
+    out = _generate_draft_impl(str(tmp_path), "as is", 1, "", 0, raw=True,
+                               settings=_settings(tmp_path), comfy=_FakeComfy(), writer=w)
+    assert w.calls == []
+    assert out["prompt_used"] == "as is"
+    assert out["writer_skipped"] is None
+
+
+def test_draft_auto_rewrites_and_reports(tmp_path):
+    w = _OkAutoWriter()
+    out = _generate_draft_impl(str(tmp_path), "задача", 1, "", 0,
+                               settings=_settings(tmp_path), comfy=_FakeComfy(), writer=w)
+    assert w.calls == ["comfyui/sdxl-juggernaut"]
+    assert out["prompt_used"] == "REWRITTEN"
+    assert out["prompt_log"] == "/tmp/log.md"
+
+
+def test_draft_explicit_negative_wins(tmp_path):
+    captured = {}
+
+    class _Comfy(_FakeComfy):
+        def generate(self, prompt, out_dir, **kw):
+            captured.update(kw, prompt=prompt)
+            return super().generate(prompt, out_dir, **kw)
+
+    _generate_draft_impl(str(tmp_path), "задача", 1, "my-neg", 0,
+                         settings=_settings(tmp_path), comfy=_Comfy(), writer=_OkAutoWriter())
+    assert captured["prompt"] == "REWRITTEN"
+    assert captured["negative"] == "my-neg"  # явный негатив главнее авто
+
+
+def test_draft_writer_failure_falls_open(tmp_path):
+    out = _generate_draft_impl(str(tmp_path), "задача", 1, "", 0,
+                               settings=_settings(tmp_path), comfy=_FakeComfy(),
+                               writer=_FailAutoWriter())
+    assert out["writer_skipped"] == "ключ протух"
+    assert out["prompt_used"] == "задача"     # генерация прошла сырым текстом
+    assert len(out["images"]) == 1
+
+
+def test_final_auto_uses_final_target(tmp_path):
+    w = _OkAutoWriter()
+    out = _generate_final_impl(str(tmp_path), "задача", [], "9:16",
+                               settings=_settings(tmp_path), nano=_FakeNano(), writer=w)
+    assert w.calls == ["nano/gemini-image"]
+    assert out["prompt_used"] == "REWRITTEN"
 
 
 def test_bearer_auth_middleware_rejects_bad_token():
