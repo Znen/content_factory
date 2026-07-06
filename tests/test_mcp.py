@@ -94,3 +94,40 @@ def test_curation_tools_registered():
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"gf_add_variant", "gf_set_winner", "gf_list_sets",
             "gf_materialize_winners", "gf_discard", "gf_adopt_set"} <= names
+
+
+def test_write_prompt_impl_maps_writer_error(tmp_path):
+    from gf.mcp_server import _write_prompt_impl
+
+    class _BoomWriter:
+        WriterError = __import__("gf.writer", fromlist=["WriterError"]).WriterError
+
+        def write_prompt(self, *a, **kw):
+            raise self.WriterError("нет такой цели")
+
+    out = _write_prompt_impl(str(tmp_path), "magnific/nope", "задача",
+                             settings=_settings(tmp_path), writer=_BoomWriter())
+    assert out == {"error": "нет такой цели"}
+
+
+def test_write_prompt_impl_passes_through(tmp_path):
+    from gf.mcp_server import _write_prompt_impl
+
+    class _OkWriter:
+        WriterError = __import__("gf.writer", fromlist=["WriterError"]).WriterError
+
+        def write_prompt(self, project, target, task, refs=None, aspect=None, extra=None, *, settings):
+            return {"prompt": "p", "target": target, "negative": None,
+                    "params": None, "notes": None, "log_path": None, "warning": None}
+
+    out = _write_prompt_impl(str(tmp_path), "comfyui/sdxl-test", "задача",
+                             settings=_settings(tmp_path), writer=_OkWriter())
+    assert out["prompt"] == "p"
+
+
+def test_writer_tools_registered():
+    import asyncio
+    from gf.mcp_server import build_server
+    mcp, _ = build_server()
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"gf_write_prompt", "gf_list_targets"} <= names

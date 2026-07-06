@@ -46,6 +46,25 @@ def generate_final(project: str, prompt: str,
     typer.echo(json.dumps(out, ensure_ascii=False, indent=2))
 
 
+@app.command("write-prompt")
+def write_prompt_cmd(project: str, target: str, task: str,
+                     ref: Optional[List[str]] = typer.Option(None, help="референс (повторяемо)"),
+                     aspect: str = typer.Option("", help="аспект, напр. 9:16"),
+                     extra: str = typer.Option("", help="доп. указания райтеру")):
+    """Написать промпт по паспорту цели (живой вызов Claude; нужен ANTHROPIC_API_KEY)."""
+    from .core import build_core
+    from .mcp_server import _write_prompt_impl
+    _echo(_write_prompt_impl(project, target, task, ref or None, aspect, extra,
+                             settings=build_core().settings))
+
+
+@app.command("list-targets")
+def list_targets_cmd():
+    """Доступные цели промпт-райтера."""
+    from .writer import list_targets
+    _echo({"targets": list_targets()})
+
+
 def _echo(result: dict) -> None:
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 

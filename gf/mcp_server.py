@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import pricing, budget as budget_mod, media
+from . import pricing, budget as budget_mod, media, writer as writer_mod
 from .backends import nano as nano_mod, comfyui as comfyui_mod
 
 
@@ -43,6 +43,16 @@ def _generate_final_impl(project: str, prompt: str, refs: "list | None" = None, 
     budget.log_cost(project_dir, "nano", 1, cost, note=f"final {date}")
     return {"images": [str(p) for p in saved], "backend": "nano",
             "cost_usd": cost, "spent_usd": budget.spent(project_dir)}
+
+
+def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
+                       aspect: str = "", extra: str = "", *, settings, writer=writer_mod) -> dict:
+    try:
+        return writer.write_prompt(project, target, task, refs=refs or None,
+                                   aspect=aspect or None, extra=extra or None,
+                                   settings=settings)
+    except writer.WriterError as e:
+        return {"error": str(e)}
 
 
 def _nano_password(settings) -> "str | None":
@@ -93,6 +103,21 @@ def build_server():
                           aspect: str = "9:16") -> dict:
         """Generate a client-facing final with Nano Banana (up to 4 multi-image refs)."""
         return _generate_final_impl(project, prompt, refs, aspect, settings=settings)
+
+    @mcp.tool()
+    def gf_write_prompt(project: str, target: str, task: str, refs: "list | None" = None,
+                        aspect: str = "", extra: str = "") -> dict:
+        """Написать промпт для цели (target из gf_list_targets) по паспорту модели.
+        Работает и для площадок, которые завод не оборачивает (magnific/*)."""
+        return _write_prompt_impl(project, target, task, refs, aspect, extra, settings=settings)
+
+    @mcp.tool()
+    def gf_list_targets() -> dict:
+        """Доступные цели промпт-райтера (из frontmatter'ов паспортов)."""
+        try:
+            return {"targets": writer_mod.list_targets()}
+        except writer_mod.WriterError as e:
+            return {"error": str(e)}
 
     from . import curate
 
