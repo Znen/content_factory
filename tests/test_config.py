@@ -33,3 +33,25 @@ def test_env_overrides(monkeypatch):
     assert s.mcp_port == 9000
     assert s.mcp_token == "secret"
     assert s.image_cap_usd == 5.5
+
+
+def test_writer_settings_defaults(monkeypatch):
+    for var in ("GF_WRITER_MODEL", "GF_WRITER_MAX_TOKENS", "GF_WRITER_ENABLED",
+                "GF_WRITER_DRAFT_TARGET", "GF_WRITER_FINAL_TARGET"):
+        monkeypatch.delenv(var, raising=False)
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.writer_model == "claude-sonnet-5"
+    assert s.writer_max_tokens == 2000
+    assert s.writer_enabled is True
+    assert s.writer_draft_target == "comfyui/sdxl-juggernaut"
+    assert s.writer_final_target == "nano/gemini-image"
+
+
+def test_writer_settings_overrides(monkeypatch):
+    monkeypatch.setenv("GF_WRITER_MODEL", "claude-haiku-4-5")
+    monkeypatch.setenv("GF_WRITER_ENABLED", "false")
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.writer_model == "claude-haiku-4-5"
+    assert s.writer_enabled is False

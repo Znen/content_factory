@@ -14,11 +14,23 @@ class Settings:
     mcp_bind: str
     mcp_port: int
     mcp_token: "str | None"
+    writer_model: str
+    writer_max_tokens: int
+    writer_enabled: bool
+    writer_draft_target: str
+    writer_final_target: str
 
 
 def _float_or_none(raw: str) -> "float | None":
     raw = (raw or "").strip()
     return float(raw) if raw else None
+
+
+def _bool(raw: str, default: bool) -> bool:
+    raw = (raw or "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
 
 
 def load_settings() -> Settings:
@@ -39,4 +51,9 @@ def load_settings() -> Settings:
         mcp_bind=os.environ.get("GF_MCP_BIND", "127.0.0.1"),
         mcp_port=int(os.environ.get("GF_MCP_PORT", "8766")),
         mcp_token=os.environ.get("GF_MCP_TOKEN") or None,
+        writer_model=os.environ.get("GF_WRITER_MODEL", "claude-sonnet-5"),
+        writer_max_tokens=int(os.environ.get("GF_WRITER_MAX_TOKENS", "2000")),
+        writer_enabled=_bool(os.environ.get("GF_WRITER_ENABLED", ""), True),
+        writer_draft_target=os.environ.get("GF_WRITER_DRAFT_TARGET", "comfyui/sdxl-juggernaut"),
+        writer_final_target=os.environ.get("GF_WRITER_FINAL_TARGET", "nano/gemini-image"),
     )

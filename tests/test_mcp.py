@@ -8,7 +8,9 @@ def _settings(tmp_path, cap=None):
         comfyui_url="http://127.0.0.1:8188", comfyui_ckpt="m.safetensors",
         comfyui_workflow="", nano_server_url="http://localhost:3001", nano_env_file="",
         nano_timeout=120, image_cap_usd=cap, mcp_bind="127.0.0.1", mcp_port=8766,
-        mcp_token=None)
+        mcp_token=None, writer_model="claude-sonnet-5", writer_max_tokens=2000,
+        writer_enabled=False, writer_draft_target="comfyui/sdxl-juggernaut",
+        writer_final_target="nano/gemini-image")
 
 
 class _FakeComfy:
