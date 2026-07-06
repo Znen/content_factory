@@ -227,6 +227,23 @@ def test_write_prompt_failure_still_logs_cost(tmp_path):
     assert rec["backend"] == "writer" and rec["cost_usd"] > 0
 
 
+def test_write_prompt_cost_log_failure_does_not_crash(tmp_path):
+    """budget.log_cost делает mkdir+append — на read-only диске/правах может
+    бросить OSError. Потеря записи о стоимости приемлема, падение всего
+    write_prompt (и, транзитивно, gf_generate_*) — нет."""
+    root = _docs(tmp_path)
+
+    class _BrokenBudget:
+        @staticmethod
+        def log_cost(*a, **kw):
+            raise OSError("read-only filesystem")
+
+    out = writer.write_prompt(str(tmp_path), "comfyui/sdxl-test", "задача",
+                              settings=_settings(), client=_FakeClient([GOOD]),
+                              root=root, budget=_BrokenBudget())
+    assert out["prompt"] == "cinematic photo, rain"
+
+
 def test_write_prompt_disabled_raises(tmp_path):
     with pytest.raises(writer.WriterError) as e:
         writer.write_prompt(str(tmp_path), "comfyui/sdxl-test", "задача",

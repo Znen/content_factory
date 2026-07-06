@@ -187,7 +187,13 @@ def write_prompt(project: str, target: str, task: str, refs: "list | None" = Non
         if usage_acc["in"] or usage_acc["out"]:
             cost = pricing.estimate_llm(settings.writer_model,
                                         usage_acc["in"], usage_acc["out"])
-            budget.log_cost(Path(project), "writer", 1, cost, note=f"prompt {target}")
+            try:
+                budget.log_cost(Path(project), "writer", 1, cost, note=f"prompt {target}")
+            except OSError:
+                # запись cost-лога не должна ронять write_prompt (контракт:
+                # райтер никогда не останавливает генерацию); ту же гвардию
+                # уже есть рядом у log_prompt.
+                pass
     result = {"prompt": data["prompt"].strip(), "negative": data.get("negative"),
               "params": data.get("params"), "notes": data.get("notes"),
               "target": target, "log_path": None, "warning": None}
