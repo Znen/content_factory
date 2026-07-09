@@ -9,14 +9,17 @@
 - Референсы шлются ПРЯМО в теле как base64 (или URL) — отдельный upload-флоу НЕ нужен
   (спека §5.1 предполагала request-upload→PUT→finalize; по факту не требуется).
 - POST-пути РАЗЛИЧАЮТСЯ по моделям:
-    mystic              -> POST /v1/ai/mystic                          (t2i, рефы опциональны)
-    seedream-v4-5-edit  -> POST /v1/ai/text-to-image/seedream-v4-5-edit (reference_images[], 1-5)
-    flux-kontext-pro    -> POST /v1/ai/text-to-image/flux-kontext-pro   (input_image, ровно 1)
+    mystic              -> POST /v1/ai/mystic                            (t2i, рефы опциональны)
+    seedream-v4-5-edit  -> POST /v1/ai/text-to-image/seedream-v4-5-edit  (reference_images[], 1-5)
+    flux-kontext-pro    -> POST /v1/ai/text-to-image/flux-kontext-pro    (input_image, ровно 1)
+    nano-banana-pro     -> POST /v1/ai/text-to-image/nano-banana-pro     (reference_images[], 0-4;
+                           t2i или multi-ref; verified live 2026-07-09)
 - Async: POST -> {"data":{"task_id","status":"CREATED","generated":[]}}.
   Поллинг: GET <post-path>/{task_id} -> data.status в CREATED|IN_PROGRESS|COMPLETED|FAILED,
   готовые картинки в data.generated[] (подписанные CDN-URL freepik, качаются GET без ключа).
-- aspect_ratio — свой enum Magnific (square_1_1, widescreen_16_9, social_story_9_16, …),
-  НЕ "9:16". Передаётся как есть; пустой — не передаётся.
+- aspect_ratio — формат ЗАВИСИТ ОТ МОДЕЛИ: mystic/seedream/flux — свой enum Magnific
+  (square_1_1, widescreen_16_9, social_story_9_16, …); nano-banana-pro — ОБЫЧНЫЙ формат
+  ("1:1", "16:9", "9:16", "2:3"…). Передаётся как есть; пустой — не передаётся.
 """
 
 from __future__ import annotations
@@ -41,6 +44,9 @@ _MODELS = {
     "flux-kontext-pro": {"path": "/v1/ai/text-to-image/flux-kontext-pro",
                          "ref_field": "input_image", "ref_mode": "single",
                          "ref_min": 1, "ref_max": 1},
+    "nano-banana-pro": {"path": "/v1/ai/text-to-image/nano-banana-pro",
+                        "ref_field": "reference_images", "ref_mode": "array",
+                        "ref_min": 0, "ref_max": 4},   # рефы опциональны (умеет t2i и multi-ref)
 }
 
 
@@ -80,7 +86,8 @@ def _build_payload(model: str, prompt: str, refs: "list", aspect: str = "") -> "
             raise MagnificError(
                 f"Модель {model} требует {lo}-{hi} референс(ов), получено {len(refs)}")
         encoded = [encode_ref(r) for r in refs]
-        body[field] = encoded if cfg["ref_mode"] == "array" else encoded[0]
+        if encoded:   # пустой список рефов (ref_min=0, t2i) — поле не добавляем вовсе
+            body[field] = encoded if cfg["ref_mode"] == "array" else encoded[0]
     return cfg["path"], body
 
 

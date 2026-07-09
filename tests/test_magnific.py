@@ -89,6 +89,28 @@ def test_build_payload_unknown_model_lists_known(tmp_path):
     assert "mystic" in str(e.value)
 
 
+def test_build_payload_nano_banana_pro_t2i_no_refs(tmp_path):
+    # рефы опциональны (ref_min=0): 0 рефов = чистый t2i, поле reference_images НЕ добавляется
+    path, body = magnific._build_payload("nano-banana-pro", "a red fox in snow", [], "9:16")
+    assert path == "/v1/ai/text-to-image/nano-banana-pro"
+    assert body["prompt"] == "a red fox in snow"
+    assert body["aspect_ratio"] == "9:16"          # обычный формат, НЕ magnific-enum
+    assert "reference_images" not in body          # пустое поле не шлём
+
+
+def test_build_payload_nano_banana_pro_with_refs(tmp_path):
+    refs = [_png(tmp_path, "a.png"), _png(tmp_path, "b.png")]
+    path, body = magnific._build_payload("nano-banana-pro", "combine face and location", refs, "")
+    assert path == "/v1/ai/text-to-image/nano-banana-pro"
+    assert isinstance(body["reference_images"], list) and len(body["reference_images"]) == 2
+
+
+def test_build_payload_nano_banana_pro_too_many_refs(tmp_path):
+    refs = [_png(tmp_path, f"r{i}.png") for i in range(5)]   # max 4
+    with pytest.raises(magnific.MagnificError):
+        magnific._build_payload("nano-banana-pro", "x", refs, "")
+
+
 # ── generate: POST → poll → download (инъецируемый session) ───────────────
 
 _BASE = "https://api.magnific.com"

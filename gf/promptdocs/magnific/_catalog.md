@@ -22,6 +22,7 @@
 |---|---|---|
 | **Mystic** | [`mystic.md`](mystic.md) | (б) — флагманский фотореализм/кино-портреты площадки (эксклюзив Freepik, не переносится на другие хостинги). НЕ подходит для сшивки «лицо+локация» буквально — структурный/стилевой референс, не identity-lock. |
 | **Seedream 4.5 Edit** | [`seedream-v4-5-edit.md`](seedream-v4-5-edit.md) | (а) — «strong character control and multi-image fusion»; 1-5 референсов; главный кандидат на финалы «лицо с фото 1 + локация с фото 2» вместо Nano. |
+| **Nano Banana Pro** | [`nano-banana-pro.md`](nano-banana-pro.md) | (а) — Google Gemini image на Magnific (verified live); t2i ИЛИ multi-ref 0-4; **рабочая замена заблокированному локальному Nano** (Gemini-403). Aspect в обычном `"9:16"`-формате (не enum). |
 | **Flux Kontext Pro** | [`flux-kontext-pro.md`](flux-kontext-pro.md) | точечные правки уже выбранного финала (смена фона/одежды/времени суток без пересборки сцены) — не входит в исходные три критерия напрямую, но закрывает частый в Lion Films кейс «доработать финал», где Seedream/Mystic избыточны (пересоздают сцену с нуля, а не редактируют её). |
 | **Kling 2.5 Pro** (image-to-video) | [`kling-v2-5-pro.md`](kling-v2-5-pro.md) | (в) — единственная видео-модель набора; оживление winner-кадра (`gf_contact_sheet`/курация уже выбрала лучший кадр → Kling его анимирует). |
 
@@ -44,7 +45,7 @@
 | Seedream 4.0 / 4.5 / 5.0 Lite | 4.0 — сторибординг/брендинг до 4К; 4.5 — сильный character control, наш выбор; 5.0 Lite — до 14 референсов, мультираундовый edit (кампании) | средне; Lite с 14 референсами — вероятно дороже за проход |
 | Seedream 3.0 | быстрый рендер с сильным текстом в кадре (постеры/портреты) | низко |
 | Google Imagen 3 / 4 / 4 Fast / 4 Ultra | Imagen — сильная типографика в кадре и архитектурные/интерьерные сцены; `Ultra` — реклама/эдиториал с текстом | Fast — дёшево; Ultra — дорого |
-| Google Nano Banana / Nano Banana 2 / Nano Banana Pro | мультиреференс, консистентность бренда/персонажа — по описанию похоже на замену нашему заблокированному локальному Nano-серверу, НО это модели Google на площадке Magnific, не наш `gf/backends/nano.py`; доступность не проверена в рамках этой задачи | не оценено |
+| **Nano Banana Pro** ✅ | **ДОСТУПНА (verified live 2026-07-09):** `POST /v1/ai/text-to-image/nano-banana-pro`; multi-ref через `reference_images` (0-4, опциональны — t2i или сшивка); aspect в **обычном формате** `"9:16"` (НЕ magnific-enum!); ~6с генерация. Модель семейства Google Gemini image — рабочая замена заблокированному локальному Nano (`gf/backends/nano.py`, Gemini-403). **В рабочем наборе, паспорт [`nano-banana-pro.md`](nano-banana-pro.md).** ⚠️ Базовые `nano-banana` / `nano-banana-2` отдают **404** — недоступны, только `-pro`. | средне (multi-ref дороже t2i) |
 | GPT / GPT 1 HQ / GPT 1.5 / GPT 1.5 High / GPT Image 2 | пиксель-перфект текст в кадре, 4K, арт-дирекшн под бренд-кампании | средне-высоко |
 | Ideogram 3 (+Image Reference) | типографика/постеры/логотипы — не фотореализм | средне |
 | Recraft V4 / V4 Pro | графический дизайн, вёрстка, типографика | средне |
