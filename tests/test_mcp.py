@@ -504,6 +504,128 @@ def test_video_relative_project_fail_closed(tmp_path):
 
 # ── FIX B: gf_generate_magnific пробрасывает CDN-URL при упавшем скачивании ─
 
+_VIDEO_MODELS = __import__("gf.backends.magnific", fromlist=["_VIDEO_MODELS"])._VIDEO_MODELS
+
+
+class _FakeMagnVideo:
+    MagnificError = _MagnificError
+    _VIDEO_MODELS = _VIDEO_MODELS
+
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.calls = []
+
+    def generate_video(self, prompt, out_dir, **kw):
+        self.calls.append((prompt, kw))
+        if self.error:
+            raise self.MagnificError(self.error)
+        if self.result is not None:
+            return self.result
+        p = Path(out_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        f = p / "clip.mp4"
+        f.write_bytes(b"V")
+        return {"videos": [f], "task_id": "mt-1", "timed_out": False}
+
+
+def test_video_backend_magnific_veo_t2v(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    w = _OkAutoWriter()
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "t2v", "neon city", model="veo-3-1",
+                               backend="magnific", settings=_settings(tmp_path), magnific=m, writer=w)
+    assert out["backend"] == "magnific" and out["model"] == "veo-3-1"
+    assert out["status"] == "success" and out["output"] and out["output"].endswith(".mp4")
+    assert w.calls == ["video/veo-3-1"]                  # veo → паспорт video/veo-3-1
+    p, kw = m.calls[0]
+    assert kw["duration"] in (4, 6, 8) and p == "REWRITTEN"
+
+
+def test_video_backend_magnific_kling_i2v_aspect_coerced(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    w = _OkAutoWriter()
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "i2v", "turn head", image="https://cdn/f.png",
+                               model="kling-v2-5-pro", backend="magnific", ratio="9:16",
+                               settings=_settings(tmp_path), magnific=m, writer=w)
+    assert w.calls == ["magnific/kling-v2-5-pro"]        # kling → паспорт magnific/kling-v2-5-pro
+    _, kw = m.calls[0]
+    assert kw["image"] == "https://cdn/f.png"
+    assert kw["aspect"] == "social_story_9_16"           # 9:16 → kling enum
+    assert kw["duration"] in ("5", "10")
+
+
+def test_video_autofallback_dreamina_to_magnific_on_1310(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina(submit_error="dreamina rc=1310: ExceedConcurrencyLimit")
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "i2v", "animate", image="https://cdn/f.png",
+                               settings=_settings(tmp_path), dreamina=d, magnific=m,
+                               writer=_OkAutoWriter())
+    assert out["fallback"] == "magnific"
+    assert out["backend"] == "magnific" and out["output"]
+    assert out["model"] == "kling-v2-5-pro"              # i2v → kling (выведено из mode)
+    assert m.calls                                       # magnific реально вызван
+
+
+def test_video_nonconcurrency_dreamina_error_no_fallback(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina(submit_error="Dreamina не залогинен: dreamina login --headless")
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "t2v", "x", settings=_settings(tmp_path),
+                               dreamina=d, magnific=m, writer=_OkAutoWriter())
+    assert "error" in out and "fallback" not in out
+    assert m.calls == []                                 # не фолбэкнулись
+
+
+def test_video_magnific_model_autoroutes_without_backend(tmp_path):
+    """model из Magnific-видео-набора без явного backend → идёт на Magnific, НЕ на Dreamina."""
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina()
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "i2v", "turn head", image="https://cdn/f.png",
+                               model="kling-v2-5-pro", settings=_settings(tmp_path),
+                               dreamina=d, magnific=m, writer=_OkAutoWriter())
+    assert out["backend"] == "magnific" and out["model"] == "kling-v2-5-pro"
+    assert m.calls                       # magnific вызван
+    assert d.submit_calls == []          # dreamina НЕ вызван (модель ему неизвестна)
+
+
+def test_video_explicit_dreamina_backend_respected_with_magnific_model(tmp_path):
+    """Явный backend='dreamina' уважается даже с magnific-моделью (не авто-роутим)."""
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina(submit_result={"status": "pending", "submit_id": "s", "output": None})
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "i2v", "x", image="f", model="kling-v2-5-pro",
+                               backend="dreamina", settings=_settings(tmp_path), dreamina=d,
+                               magnific=m, writer=_OkAutoWriter())
+    assert d.submit_calls                # dreamina вызван (явный backend)
+    assert m.calls == []
+
+
+def test_video_seedance_model_without_backend_goes_dreamina(tmp_path):
+    """model из Dreamina-набора без backend → Dreamina (не magnific)."""
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina(submit_result={"status": "pending", "submit_id": "s", "output": None})
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "t2v", "x", model="seedance2.0fast",
+                               settings=_settings(tmp_path), dreamina=d, magnific=m,
+                               writer=_OkAutoWriter())
+    assert out["backend"] == "dreamina" and d.submit_calls and m.calls == []
+
+
+def test_video_magnific_download_failed_preserves_urls(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    m = _FakeMagnVideo(result={"videos": [], "task_id": "mt-9", "timed_out": False,
+                               "video_urls": ["https://cdn/clip.mp4"], "download_failed": True})
+    out = _generate_video_impl(str(tmp_path), "t2v", "x", model="veo-3-1", backend="magnific",
+                               settings=_settings(tmp_path), magnific=m, writer=_OkAutoWriter())
+    assert out["download_failed"] is True
+    assert out["video_urls"] == ["https://cdn/clip.mp4"] and out.get("warning")
+    assert out["task_id"] == "mt-9"
+
+
 def test_magnific_download_failed_surfaces_urls_and_logs_cost(tmp_path):
     m = _FakeMagnific(result={"images": [], "task_id": "tid-X", "timed_out": False,
                               "image_urls": ["https://cdn.freepik/img.png"],

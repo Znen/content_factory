@@ -50,6 +50,28 @@ _MODELS = {
 }
 
 
+# видео-модели Magnific (контракт подтверждён probe'ом 2026-07-09):
+# veo — t2v (без стартового кадра); kling — i2v (поле кадра `image`, НЕ image_url!).
+# duration/aspect enums РАЗНЫЕ по моделям (сверено с live-валидатором).
+_VIDEO_MODELS = {
+    "veo-3-1": {"path": "/v1/ai/text-to-video/veo-3-1", "mode": "t2v", "img_field": None,
+                "durations": {4, 6, 8}, "aspects": {"16:9", "9:16"}},
+    "kling-v2-5-pro": {"path": "/v1/ai/image-to-video/kling-v2-5-pro", "mode": "i2v",
+                       "img_field": "image", "durations": {"5", "10"},
+                       "aspects": {"square_1_1", "social_story_9_16", "widescreen_16_9"}},
+    # соседи kling — та же схема, другой путь (дефолт — v2-5-pro; у неё есть паспорт)
+    "kling-v2-6-pro": {"path": "/v1/ai/image-to-video/kling-v2-6-pro", "mode": "i2v",
+                       "img_field": "image", "durations": {"5", "10"},
+                       "aspects": {"square_1_1", "social_story_9_16", "widescreen_16_9"}},
+    "kling-v2-1-pro": {"path": "/v1/ai/image-to-video/kling-v2-1-pro", "mode": "i2v",
+                       "img_field": "image", "durations": {"5", "10"},
+                       "aspects": {"square_1_1", "social_story_9_16", "widescreen_16_9"}},
+    "kling-pro": {"path": "/v1/ai/image-to-video/kling-pro", "mode": "i2v",
+                  "img_field": "image", "durations": {"5", "10"},
+                  "aspects": {"square_1_1", "social_story_9_16", "widescreen_16_9"}},
+}
+
+
 class MagnificError(Exception):
     pass
 
@@ -93,6 +115,46 @@ def _build_payload(model: str, prompt: str, refs: "list", aspect: str = "") -> "
 
 DEFAULT_DOWNLOAD_TIMEOUT = 120
 DEFAULT_DOWNLOAD_RETRIES = 3
+
+
+def _resolve_image_arg(image: str) -> str:
+    """Стартовый кадр kling: локальный файл → base64; URL/data-uri/base64 → как есть.
+    ⚠️ приём base64/data-uri для видео на генерации не подтверждён безопасно — надёжный путь
+    для локального winner'а: сначала выложить кадр как публичный/CDN-URL. См. паспорт/DoD."""
+    p = Path(image)
+    try:
+        is_local = p.exists() and p.is_file()
+    except OSError:
+        is_local = False
+    return encode_ref(p) if is_local else image
+
+
+def _build_video_payload(model: str, prompt: str, *, negative: str = "", duration=None,
+                         aspect: str = "", image: str = "") -> "tuple[str, dict]":
+    """Собрать (post_path, json_body) для видео-модели. duration/aspect enums различаются по модели."""
+    cfg = _VIDEO_MODELS.get(model)
+    if cfg is None:
+        raise MagnificError(f"Unknown Magnific video model {model!r} (known: {sorted(_VIDEO_MODELS)})")
+    body = {"prompt": prompt}
+    if negative:
+        body["negative_prompt"] = negative
+    if duration is not None and duration != "":
+        if duration not in cfg["durations"]:
+            raise MagnificError(
+                f"{model}: duration должен быть {sorted(cfg['durations'], key=str)}, получено {duration!r}")
+        body["duration"] = duration
+    if aspect:
+        if aspect not in cfg["aspects"]:
+            raise MagnificError(
+                f"{model}: aspect_ratio должен быть {sorted(cfg['aspects'])}, получено {aspect!r}")
+        body["aspect_ratio"] = aspect
+    if cfg["img_field"]:
+        if not image:
+            raise MagnificError(f"Модель {model} — i2v, нужен стартовый кадр (image)")
+        body[cfg["img_field"]] = _resolve_image_arg(image)
+    elif image:
+        raise MagnificError(f"Модель {model} — t2v без стартового кадра (image не принимается)")
+    return cfg["path"], body
 
 
 def save_image(url: str, out_path: Path, session=None, *,
@@ -210,5 +272,57 @@ def generate(prompt: str, refs: "list", out_dir: "str | Path", *, model: str,
     result = {"images": saved, "task_id": task_id, "timed_out": False}
     if failed_urls:
         result["image_urls"] = failed_urls
+        result["download_failed"] = True
+    return result
+
+
+def generate_video(prompt: str, out_dir: "str | Path", *, model: str, base_url: str,
+                   api_key: "str | None", negative: str = "", duration=None, aspect: str = "",
+                   image: str = "", timeout: int = DEFAULT_TIMEOUT, poll_interval: int = 3,
+                   download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+                   download_retries: int = DEFAULT_DOWNLOAD_RETRIES, session=None) -> dict:
+    """Видео через Magnific REST (t2v veo / i2v kling). Реюз поллинга и CDN-ретрая картинок.
+    Возвращает {"videos": [Path,...], "task_id", "timed_out"}; при упавшем скачивании
+    COMPLETED-задачи — video_urls + download_failed (результат не теряется)."""
+    if not api_key:
+        raise MagnificError("Нет GF_MAGNIFIC_API_KEY — укажи ключ Magnific в .env.")
+    session = session or requests
+    path, body = _build_video_payload(model, prompt, negative=negative, duration=duration,
+                                      aspect=aspect, image=image)
+
+    data = _submit(session, base_url, path, api_key, body, timeout)
+    task_id = data.get("task_id")
+    status = data.get("status", "")
+
+    deadline = time.time() + timeout
+    while status in ("CREATED", "IN_PROGRESS"):
+        if time.time() >= deadline:
+            return {"videos": [], "task_id": task_id, "timed_out": True}
+        if poll_interval:
+            time.sleep(poll_interval)
+        data = _poll_once(session, base_url, path, api_key, task_id, timeout)
+        status = data.get("status", "")
+
+    if status == "FAILED":
+        raise MagnificError(f"Magnific видео-задача {task_id} провалилась: {data}")
+    urls = data.get("generated") or []
+    if not urls:
+        raise MagnificError(f"Magnific: статус {status}, но нет видео в generated[]")
+
+    out_dir = Path(out_dir)
+    stamp = _stamp()
+    saved, failed_urls = [], []
+    for i, url in enumerate(urls, start=1):
+        suffix = "" if len(urls) == 1 else f"-{i:02d}"
+        out_path = out_dir / f"magnific_{model}_{stamp}{suffix}.mp4"
+        try:
+            save_image(url, out_path, session=session, timeout=download_timeout,
+                       retries=download_retries)
+            saved.append(out_path)
+        except MagnificError:
+            failed_urls.append(url)
+    result = {"videos": saved, "task_id": task_id, "timed_out": False}
+    if failed_urls:
+        result["video_urls"] = failed_urls
         result["download_failed"] = True
     return result

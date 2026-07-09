@@ -276,3 +276,78 @@ def test_generate_download_failure_preserves_result(tmp_path):
     assert out["image_urls"] == ["https://cdn.freepik/img.png"]
     assert out["download_failed"] is True
     assert out["task_id"] == "tid-1"                 # номерок на месте
+
+
+# ── ВИДЕО через Magnific REST (t2v veo / i2v kling) ───────────────────────
+
+def test_build_video_payload_veo_t2v():
+    path, body = magnific._build_video_payload("veo-3-1", "neon city drive",
+                                               negative="blurry", duration=8, aspect="16:9")
+    assert path == "/v1/ai/text-to-video/veo-3-1"
+    assert body["prompt"] == "neon city drive" and body["negative_prompt"] == "blurry"
+    assert body["duration"] == 8 and body["aspect_ratio"] == "16:9"
+    assert "image" not in body
+
+
+def test_build_video_payload_veo_rejects_bad_duration():
+    with pytest.raises(magnific.MagnificError):
+        magnific._build_video_payload("veo-3-1", "x", duration=5)   # 5 не в {4,6,8}
+
+
+def test_build_video_payload_veo_rejects_start_frame():
+    with pytest.raises(magnific.MagnificError):
+        magnific._build_video_payload("veo-3-1", "x", image="https://cdn/f.png")
+
+
+def test_build_video_payload_kling_i2v_url_image():
+    path, body = magnific._build_video_payload("kling-v2-5-pro", "turn head", duration="5",
+                                               aspect="widescreen_16_9", image="https://cdn/frame.png")
+    assert path == "/v1/ai/image-to-video/kling-v2-5-pro"
+    assert body["image"] == "https://cdn/frame.png"      # URL — как есть
+    assert body["duration"] == "5" and body["aspect_ratio"] == "widescreen_16_9"
+
+
+def test_build_video_payload_kling_local_frame_base64(tmp_path):
+    frame = _png(tmp_path, "winner.png")
+    path, body = magnific._build_video_payload("kling-v2-5-pro", "animate", image=str(frame))
+    assert base64.b64decode(body["image"]) == b"\x89PNG\r\n\x1a\nFAKE"   # локальный кадр → base64
+
+
+def test_build_video_payload_kling_requires_frame():
+    with pytest.raises(magnific.MagnificError):
+        magnific._build_video_payload("kling-v2-5-pro", "x")   # i2v без кадра
+
+
+def test_build_video_payload_kling_rejects_bad_aspect():
+    with pytest.raises(magnific.MagnificError):
+        magnific._build_video_payload("kling-v2-5-pro", "x", image="https://u", aspect="16:9")  # нужен enum
+
+
+def test_build_video_payload_unknown_model():
+    with pytest.raises(magnific.MagnificError):
+        magnific._build_video_payload("seedance", "x")
+
+
+def test_generate_video_veo_happy_path(tmp_path):
+    sess = _FakeSession(generated=("https://cdn/clip.mp4",), img=b"VIDEO")
+    out = magnific.generate_video("neon city", tmp_path / "out", model="veo-3-1",
+                                  base_url=_BASE, api_key="mk", duration=8, aspect="16:9",
+                                  session=sess, poll_interval=0)
+    assert out["timed_out"] is False and len(out["videos"]) == 1
+    v = Path(out["videos"][0])
+    assert v.exists() and v.suffix == ".mp4" and v.read_bytes() == b"VIDEO"
+    assert "magnific_veo-3-1" in v.name
+
+
+def test_generate_video_download_failure_preserves(tmp_path):
+    class _DlFail(_FakeSession):
+        def get(self, url, **kw):
+            if not url.startswith(_BASE):
+                raise requests.exceptions.Timeout("cdn")
+            return super().get(url, **kw)
+
+    sess = _DlFail(generated=("https://cdn/clip.mp4",))
+    out = magnific.generate_video("x", tmp_path / "out", model="veo-3-1", base_url=_BASE,
+                                  api_key="mk", session=sess, poll_interval=0, download_retries=1)
+    assert out["videos"] == [] and out["download_failed"] is True
+    assert out["video_urls"] == ["https://cdn/clip.mp4"]

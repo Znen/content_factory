@@ -79,13 +79,15 @@ def generate_video_cmd(project: str, mode: str, prompt: str,
                        duration: int = typer.Option(5, help="4-15с"),
                        ratio: str = typer.Option("", help="t2v/multimodal, напр. 16:9"),
                        resolution: str = typer.Option("720p", help="720p | 1080p (VIP multimodal)"),
-                       raw: bool = typer.Option(False, help="не переписывать промпт райтером")):
-    """Seedance video через Dreamina (нужен залогиненный CLI + кредиты). mode: i2v|t2v|frames|multimodal."""
+                       raw: bool = typer.Option(False, help="не переписывать промпт райтером"),
+                       backend: str = typer.Option("", help="'' авто по model | dreamina | magnific (model=veo-3-1|kling-v2-5-pro)")):
+    """Видео: Dreamina (Seedance; авто-фолбэк на Magnific при ret=1310) или Magnific REST.
+    Пустой backend + magnific-модель (kling-*/veo-*) → авто-Magnific. mode: i2v|t2v|frames|multimodal."""
     from .core import build_core
     from .mcp_server import _generate_video_impl
     _echo(_generate_video_impl(project, mode, prompt, image, first, last, images or None,
                                video or None, audio or None, model, duration, ratio, resolution,
-                               raw, settings=build_core().settings))
+                               raw, backend, settings=build_core().settings))
 
 
 @app.command("list-video-jobs")

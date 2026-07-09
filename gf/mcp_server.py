@@ -82,17 +82,14 @@ def _credit_note(credits: int, model: str, resolution: str) -> str:
     return f"{credits} credits ({model}, {resolution})"
 
 
-def _generate_video_impl(project: str, mode: str, prompt: str, image: str = "", first: str = "",
-                         last: str = "", images: "list | None" = None, video: "list | None" = None,
-                         audio: "list | None" = None, model: str = "", duration: int = 5,
-                         ratio: str = "", resolution: str = "720p", raw: bool = False, *,
-                         settings, dreamina=dreamina_mod, budget=budget_mod, writer=writer_mod,
-                         jobs=jobs_mod) -> dict:
-    """Сгенерировать видео через Dreamina (Seedance). Гибрид: ждёт до poll; не успел → pending."""
-    try:
-        media.require_absolute_project(project)
-    except ValueError as e:
-        return {"error": str(e), "status": "error"}
+def _run_dreamina_video(project: str, mode: str, prompt: str, image: str = "", first: str = "",
+                        last: str = "", images: "list | None" = None, video: "list | None" = None,
+                        audio: "list | None" = None, model: str = "", duration: int = 5,
+                        ratio: str = "", resolution: str = "720p", raw: bool = False, *,
+                        settings, dreamina=dreamina_mod, budget=budget_mod, writer=writer_mod,
+                        jobs=jobs_mod) -> dict:
+    """Видео через Dreamina (Seedance). Гибрид: ждёт до poll; не успел → pending.
+    project-guard делает диспетчер _generate_video_impl."""
     model = model or settings.dreamina_default_model
     prompt_used, prompt_log, skipped = prompt, None, None
     if not raw:
@@ -131,6 +128,143 @@ def _generate_video_impl(project: str, mode: str, prompt: str, image: str = "", 
             "backend": "dreamina", "model": model, "credits": credits,
             "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped,
             "warning": warning}
+
+
+# ── Magnific как ВТОРОЙ видео-путь (резерв Dreamina) ──────────────────────
+
+_CONCURRENCY_MARKERS = ("1310", "exceedconcurrencylimit", "concurrency")
+_RATIO_TO_KLING = {"16:9": "widescreen_16_9", "9:16": "social_story_9_16", "1:1": "square_1_1"}
+
+
+def _is_concurrency_limit(msg: str) -> bool:
+    """Dreamina ExceedConcurrencyLimit / ret=1310 → сигнал к авто-фолбэку на Magnific."""
+    low = (msg or "").lower()
+    return any(m in low for m in _CONCURRENCY_MARKERS)
+
+
+def _coerce_video_duration(video_models: dict, model: str, d):
+    """duration под enum модели (veo: 4|6|8 int; kling: '5'|'10' str). Невалидное → первое валидное."""
+    durs = video_models[model]["durations"]
+    for cand in (d, str(d)):
+        if cand in durs:
+            return cand
+    return sorted(durs, key=lambda x: int(x))[0]
+
+
+def _coerce_video_aspect(video_models: dict, model: str, ratio: str) -> str:
+    """aspect под модель: veo — обычный '16:9'; kling — enum. Неизвестное → '' (дефолт модели)."""
+    if not ratio:
+        return ""
+    aspects = video_models[model]["aspects"]
+    if ratio in aspects:
+        return ratio
+    mapped = _RATIO_TO_KLING.get(ratio)
+    return mapped if mapped in aspects else ""
+
+
+def _run_magnific_video(project: str, mode: str, task: str, image: str, model: str,
+                        duration_in, ratio_in: str, raw: bool, *, settings, magnific=magnific_mod,
+                        budget=budget_mod, writer=writer_mod, jobs=jobs_mod,
+                        fallback: bool = False) -> dict:
+    """Видео через Magnific REST. model пуст → вывод из mode (i2v→kling, иначе veo)."""
+    model = model or ("kling-v2-5-pro" if mode == "i2v" else "veo-3-1")
+    if model not in magnific._VIDEO_MODELS:
+        return {"error": f"Неизвестная magnific-видео-модель {model!r} "
+                         f"(доступны: {sorted(magnific._VIDEO_MODELS)})", "status": "error"}
+    if not settings.magnific_api_key:
+        return {"error": "Нет GF_MAGNIFIC_API_KEY — укажи ключ Magnific в .env.", "status": "error"}
+
+    # цель райтера: veo → video/veo-3-1; kling → magnific/kling-v2-5-pro (паспорта есть)
+    target = "video/veo-3-1" if model == "veo-3-1" else "magnific/kling-v2-5-pro"
+    prompt_used, prompt_log, skipped = task, None, None
+    if not raw:
+        prompt_used, _neg, prompt_log, skipped = _maybe_rewrite(
+            project, task, "", target, settings=settings, writer=writer)
+
+    project_dir = Path(project)
+    date = media.today()
+    out_dir = media.generated_dir(project_dir, date)
+    duration = _coerce_video_duration(magnific._VIDEO_MODELS, model, duration_in)
+    aspect = _coerce_video_aspect(magnific._VIDEO_MODELS, model, ratio_in)
+
+    try:
+        res = magnific.generate_video(prompt_used, out_dir, model=model,
+                                      base_url=settings.magnific_base_url,
+                                      api_key=settings.magnific_api_key, duration=duration,
+                                      aspect=aspect, image=image, timeout=settings.magnific_timeout,
+                                      poll_interval=settings.magnific_poll_interval,
+                                      download_timeout=settings.magnific_download_timeout,
+                                      download_retries=settings.magnific_download_retries)
+    except magnific.MagnificError as e:
+        out = {"error": str(e), "backend": "magnific", "model": model, "status": "error",
+               "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped}
+        if fallback:
+            out["fallback"] = "magnific"
+        return out
+
+    videos = [str(p) for p in res.get("videos", [])]
+    video_urls = res.get("video_urls") or []
+    output = videos[0] if videos else None
+    cost = pricing.estimate_magnific(model, 1)
+    if res.get("timed_out"):
+        status = "pending"
+    else:
+        status = "success"
+    jobs.append_job(project_dir, {"submit_id": res.get("task_id"), "mode": mode, "model": model,
+                                  "task": task, "prompt_used": prompt_used, "backend": "magnific",
+                                  "status": status, "output": output, "date": date})
+    if videos or video_urls:   # задача COMPLETED (кредиты списаны) → логируем трату
+        budget.log_cost(project_dir, f"magnific/{model}", 1, cost, note=f"magnific video {date}")
+    out = {"status": status, "backend": "magnific", "model": model, "output": output,
+           "videos": videos, "task_id": res.get("task_id"),
+           "timed_out": res.get("timed_out", False), "cost_usd": cost,
+           "spent_usd": budget.spent(project_dir), "prompt_used": prompt_used,
+           "prompt_log": prompt_log, "writer_skipped": skipped}
+    if fallback:
+        out["fallback"] = "magnific"
+    if res.get("download_failed"):
+        out["video_urls"] = video_urls
+        out["download_failed"] = True
+        out["warning"] = ("Видео не скачалось с CDN (кредиты уже списаны) — забери по "
+                          "video_urls вручную, результат не потерян.")
+    return out
+
+
+def _generate_video_impl(project: str, mode: str, prompt: str, image: str = "", first: str = "",
+                         last: str = "", images: "list | None" = None, video: "list | None" = None,
+                         audio: "list | None" = None, model: str = "", duration: int = 5,
+                         ratio: str = "", resolution: str = "720p", raw: bool = False,
+                         backend: str = "", *, settings, dreamina=dreamina_mod,
+                         magnific=magnific_mod, budget=budget_mod, writer=writer_mod,
+                         jobs=jobs_mod) -> dict:
+    """Диспетчер видео. backend: ""(auto по model)|dreamina|magnific|auto. При ExceedConcurrencyLimit
+    (ret=1310) у Dreamina — авто-фолбэк на Magnific (i2v→kling, t2v→veo) с флагом fallback."""
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "status": "error"}
+
+    # авто-роутинг: явная Magnific-видео-модель без явного backend="dreamina" → Magnific
+    # (Dreamina её не знает — иначе молча ушла бы в CLI и упала). Пустая model → по backend.
+    if model and model in magnific._VIDEO_MODELS and backend != "dreamina":
+        backend = "magnific"
+    elif not backend:
+        backend = "dreamina"
+
+    if backend == "magnific":
+        return _run_magnific_video(project, mode, prompt, image, model, duration, ratio, raw,
+                                   settings=settings, magnific=magnific, budget=budget,
+                                   writer=writer, jobs=jobs)
+
+    res = _run_dreamina_video(project, mode, prompt, image, first, last, images, video, audio,
+                              model, duration, ratio, resolution, raw, settings=settings,
+                              dreamina=dreamina, budget=budget, writer=writer, jobs=jobs)
+    if (backend in ("dreamina", "auto") and isinstance(res, dict)
+            and "error" in res and _is_concurrency_limit(res["error"])):
+        return _run_magnific_video(project, mode, prompt, image, "", duration, ratio, raw,
+                                   settings=settings, magnific=magnific, budget=budget,
+                                   writer=writer, jobs=jobs, fallback=True)
+    return res
 
 
 def _fetch_video_impl(project: str, submit_id: str, *, settings, dreamina=dreamina_mod,
@@ -324,13 +458,17 @@ def build_server():
                           images: "list | None" = None, video: "list | None" = None,
                           audio: "list | None" = None, model: str = "",
                           duration: int = 5, ratio: str = "", resolution: str = "720p",
-                          raw: bool = False) -> dict:
-        """Сгенерировать видео через Dreamina (Seedance). mode: i2v|t2v|frames|multimodal.
-        prompt = задача движения (райтер перепишет по video/seedance-2-0); raw=True — дословно.
-        Гибрид: ждёт до GF_DREAMINA_POLL_WAIT сек; не успел → submit_id (pending) в реестр.
-        i2v: image (обычно winner). Возвращает status/submit_id/output/prompt_used/credits/warning."""
+                          raw: bool = False, backend: str = "") -> dict:
+        """Сгенерировать видео. mode: i2v|t2v|frames|multimodal. project — АБСОЛЮТНЫЙ путь.
+        backend: ""(авто по model) | dreamina (Seedance) | magnific (REST: model=veo-3-1 | kling-v2-5-pro).
+        Пустой backend + magnific-модель (kling-*/veo-*) → авто-Magnific; иначе Dreamina.
+        Dreamina при ExceedConcurrencyLimit (ret=1310) авто-фолбэчится на Magnific (i2v→kling, t2v→veo),
+        флаг fallback="magnific" в ответе. prompt = задача (райтер перепишет); raw=True — дословно.
+        i2v magnific: image = http-URL кадра (или локальный winner → base64). Возвращает
+        status/output/prompt_used/task_id + credits(dreamina) или cost_usd(magnific) + warning/fallback."""
         return _generate_video_impl(project, mode, prompt, image, first, last, images, video,
-                                    audio, model, duration, ratio, resolution, raw, settings=settings)
+                                    audio, model, duration, ratio, resolution, raw, backend,
+                                    settings=settings)
 
     @mcp.tool()
     def gf_list_video_jobs(project: str) -> dict:
