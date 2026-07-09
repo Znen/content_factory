@@ -91,18 +91,35 @@ def _build_payload(model: str, prompt: str, refs: "list", aspect: str = "") -> "
     return cfg["path"], body
 
 
-def save_image(url: str, out_path: Path, session=None) -> int:
-    """Скачать готовую картинку по подписанному CDN-URL (без auth-заголовка). Вернуть размер."""
+DEFAULT_DOWNLOAD_TIMEOUT = 120
+DEFAULT_DOWNLOAD_RETRIES = 3
+
+
+def save_image(url: str, out_path: Path, session=None, *,
+               timeout: int = DEFAULT_DOWNLOAD_TIMEOUT, retries: int = DEFAULT_DOWNLOAD_RETRIES,
+               _sleep=None) -> int:
+    """Скачать готовую картинку по подписанному CDN-URL (без auth-заголовка). Вернуть размер.
+
+    CDN freepik бывает медленным → ретрай с backoff (паттерн как в backends/dreamina.py),
+    чтобы не терять уже оплаченный результат из-за одного таймаута. При исчерпании попыток —
+    MagnificError (вызывающая generate() ловит и пробрасывает URL наверх, а не теряет)."""
+    import time
     session = session or requests
-    try:
-        r = session.get(url, timeout=60)
-    except requests.exceptions.RequestException as e:
-        raise MagnificError(f"Не удалось скачать результат Magnific: {e}") from e
-    if r.status_code != 200:
-        raise MagnificError(f"Скачивание результата: HTTP {r.status_code}")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(r.content)
-    return len(r.content)
+    _sleep = _sleep or time.sleep
+    last = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            r = session.get(url, timeout=timeout)
+            if r.status_code == 200:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(r.content)
+                return len(r.content)
+            last = MagnificError(f"Скачивание результата: HTTP {r.status_code}")
+        except requests.exceptions.RequestException as e:
+            last = MagnificError(f"Не удалось скачать результат Magnific: {e}")
+        if attempt < retries:
+            _sleep(1.5 * attempt)
+    raise last
 
 
 def _stamp() -> str:
@@ -146,9 +163,13 @@ def _poll_once(session, base_url, path, api_key, task_id, timeout) -> dict:
 def generate(prompt: str, refs: "list", out_dir: "str | Path", *, model: str,
              base_url: str, api_key: "str | None", aspect: str = "",
              timeout: int = DEFAULT_TIMEOUT, poll_interval: int = 3,
+             download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+             download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
              session=None) -> dict:
     """Полный цикл: собрать payload (base64-рефы) → POST → поллинг → скачать картинку.
     Возвращает {"images": [Path,...], "task_id": str, "timed_out": bool}.
+    Если задача COMPLETED, но скачивание с CDN упало (после ретраев) — результат НЕ теряется:
+    в ответе появляются "image_urls" (несохранённые CDN-URL) + "download_failed": True.
     timeout истёк, задача жива → timed_out=True + task_id (вызывающий отдаёт «номерок»)."""
     if not api_key:
         raise MagnificError("Нет GF_MAGNIFIC_API_KEY — укажи ключ Magnific в .env.")
@@ -176,10 +197,18 @@ def generate(prompt: str, refs: "list", out_dir: "str | Path", *, model: str,
 
     out_dir = Path(out_dir)
     stamp = _stamp()
-    saved = []
+    saved, failed_urls = [], []
     for i, url in enumerate(urls, start=1):
         suffix = "" if len(urls) == 1 else f"-{i:02d}"
         out_path = out_dir / f"magnific_{model}_{stamp}{suffix}.png"
-        save_image(url, out_path, session=session)
-        saved.append(out_path)
-    return {"images": saved, "task_id": task_id, "timed_out": False}
+        try:
+            save_image(url, out_path, session=session, timeout=download_timeout,
+                       retries=download_retries)
+            saved.append(out_path)
+        except MagnificError:
+            failed_urls.append(url)   # оплаченный результат жив на CDN — не теряем URL
+    result = {"images": saved, "task_id": task_id, "timed_out": False}
+    if failed_urls:
+        result["image_urls"] = failed_urls
+        result["download_failed"] = True
+    return result

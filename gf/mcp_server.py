@@ -21,6 +21,10 @@ def _maybe_rewrite(project, task, negative, target, *, settings, writer):
 def _generate_draft_impl(project: str, prompt: str, n: int = 4, negative: str = "",
                          seed: int = 0, raw: bool = False, *, settings,
                          comfy=comfyui_mod, budget=budget_mod, writer=writer_mod) -> dict:
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "images": []}
     prompt_used, neg_used, prompt_log, skipped = prompt, negative, None, None
     if not raw:
         prompt_used, neg_used, prompt_log, skipped = _maybe_rewrite(
@@ -46,6 +50,10 @@ def _generate_draft_impl(project: str, prompt: str, n: int = 4, negative: str = 
 def _generate_final_impl(project: str, prompt: str, refs: "list | None" = None, aspect: str = "9:16",
                          raw: bool = False, *, settings, nano=nano_mod, budget=budget_mod,
                          writer=writer_mod) -> dict:
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "images": []}
     prompt_used, prompt_log, skipped = prompt, None, None
     if not raw:
         prompt_used, _neg_ignored, prompt_log, skipped = _maybe_rewrite(
@@ -81,6 +89,10 @@ def _generate_video_impl(project: str, mode: str, prompt: str, image: str = "", 
                          settings, dreamina=dreamina_mod, budget=budget_mod, writer=writer_mod,
                          jobs=jobs_mod) -> dict:
     """Сгенерировать видео через Dreamina (Seedance). Гибрид: ждёт до poll; не успел → pending."""
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "status": "error"}
     model = model or settings.dreamina_default_model
     prompt_used, prompt_log, skipped = prompt, None, None
     if not raw:
@@ -175,6 +187,10 @@ def _generate_magnific_impl(project: str, model: str, prompt: str, refs: "list |
                             magnific=magnific_mod, budget=budget_mod, writer=writer_mod) -> dict:
     """Сгенерировать картинку через Magnific (Freepik). Клон _generate_final_impl; model обязателен."""
     # ранние чистые отказы (fail-closed) до траты денег/токенов
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "images": []}
     if model not in magnific._MODELS:
         return {"error": f"Неизвестная модель Magnific {model!r} "
                          f"(доступны: {sorted(magnific._MODELS)})", "images": []}
@@ -201,18 +217,29 @@ def _generate_magnific_impl(project: str, model: str, prompt: str, refs: "list |
                                 base_url=settings.magnific_base_url,
                                 api_key=settings.magnific_api_key, aspect=aspect,
                                 timeout=settings.magnific_timeout,
-                                poll_interval=settings.magnific_poll_interval)
+                                poll_interval=settings.magnific_poll_interval,
+                                download_timeout=settings.magnific_download_timeout,
+                                download_retries=settings.magnific_download_retries)
     except magnific.MagnificError as e:
         return {"error": str(e), "images": [], "backend": "magnific", "model": model,
                 "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped}
 
     images = [str(p) for p in res.get("images", [])]
-    if images:   # трату логируем только по факту картинки (не при timed_out без результата)
+    image_urls = res.get("image_urls") or []
+    # задача COMPLETED (есть картинка ИЛИ несохранённый CDN-URL) → кредиты списаны, логируем трату.
+    # timed_out без результата — не логируем (трата учтётся при дозаборе).
+    if images or image_urls:
         budget.log_cost(project_dir, f"magnific/{model}", 1, cost, note=f"magnific {date}")
-    return {"images": images, "backend": "magnific", "model": model,
-            "cost_usd": cost, "spent_usd": budget.spent(project_dir),
-            "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped,
-            "task_id": res.get("task_id"), "timed_out": res.get("timed_out", False)}
+    out = {"images": images, "backend": "magnific", "model": model,
+           "cost_usd": cost, "spent_usd": budget.spent(project_dir),
+           "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped,
+           "task_id": res.get("task_id"), "timed_out": res.get("timed_out", False)}
+    if res.get("download_failed"):
+        out["image_urls"] = image_urls
+        out["download_failed"] = True
+        out["warning"] = ("Часть результатов не скачалась с CDN (кредиты уже списаны) — "
+                          "забери картинку по image_urls вручную, результат не потерян.")
+    return out
 
 
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,

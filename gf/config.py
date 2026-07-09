@@ -26,6 +26,8 @@ class Settings:
     magnific_base_url: str
     magnific_timeout: int
     magnific_poll_interval: int
+    magnific_download_timeout: int
+    magnific_download_retries: int
 
 
 def _float_or_none(raw: str) -> "float | None":
@@ -70,4 +72,6 @@ def load_settings() -> Settings:
         magnific_base_url=os.environ.get("GF_MAGNIFIC_BASE_URL", "https://api.magnific.com"),
         magnific_timeout=int(os.environ.get("GF_MAGNIFIC_TIMEOUT", "180")),
         magnific_poll_interval=int(os.environ.get("GF_MAGNIFIC_POLL_INTERVAL", "3")),
+        magnific_download_timeout=int(os.environ.get("GF_MAGNIFIC_DOWNLOAD_TIMEOUT", "120")),
+        magnific_download_retries=int(os.environ.get("GF_MAGNIFIC_DOWNLOAD_RETRIES", "3")),
     )

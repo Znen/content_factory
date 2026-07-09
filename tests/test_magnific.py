@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 
 from gf.backends import magnific
 
@@ -215,11 +216,63 @@ def test_generate_insufficient_credits_raises(tmp_path):
 
 
 def test_generate_network_error_raises(tmp_path):
-    import requests as _rq
-
     class _BoomSession:
         def post(self, url, **kw):
-            raise _rq.exceptions.ConnectionError("down")
+            raise requests.exceptions.ConnectionError("down")
 
     with pytest.raises(magnific.MagnificError):
         _gen(tmp_path, _BoomSession())
+
+
+# ── FIX B: устойчивое CDN-скачивание (не терять оплаченный результат) ──────
+
+def test_save_image_retries_then_succeeds(tmp_path):
+    class _Flaky:
+        def __init__(self):
+            self.n = 0
+
+        def get(self, url, **kw):
+            self.n += 1
+            if self.n < 3:
+                raise requests.exceptions.Timeout("slow cdn")
+            return _Resp(200, content=b"IMGDATA")
+
+    sess = _Flaky()
+    out = tmp_path / "o.png"
+    size = magnific.save_image("http://cdn/x.png", out, session=sess,
+                               retries=3, _sleep=lambda *_: None)
+    assert size == len(b"IMGDATA") and out.read_bytes() == b"IMGDATA"
+    assert sess.n == 3          # ретраил дважды перед успехом
+
+
+def test_save_image_all_attempts_fail_raises(tmp_path):
+    class _Dead:
+        def __init__(self):
+            self.n = 0
+
+        def get(self, url, **kw):
+            self.n += 1
+            raise requests.exceptions.Timeout("cdn dead")
+
+    sess = _Dead()
+    with pytest.raises(magnific.MagnificError):
+        magnific.save_image("http://cdn/x.png", tmp_path / "o.png", session=sess,
+                            retries=3, _sleep=lambda *_: None)
+    assert sess.n == 3          # исчерпал все попытки
+
+
+def test_generate_download_failure_preserves_result(tmp_path):
+    """Скачивание падает всегда, но задача COMPLETED — результат НЕ теряется (image_urls)."""
+    class _SessDlFails(_FakeSession):
+        def get(self, url, **kw):
+            if not url.startswith(_BASE):     # download-GET с CDN
+                raise requests.exceptions.Timeout("cdn down")
+            return super().get(url, **kw)     # poll остаётся рабочим
+
+    sess = _SessDlFails(generated=("https://cdn.freepik/img.png",))
+    out = _gen(tmp_path, sess, download_retries=1)   # без исключения наружу
+    assert out["timed_out"] is False
+    assert out["images"] == []                       # локально ничего не сохранилось
+    assert out["image_urls"] == ["https://cdn.freepik/img.png"]
+    assert out["download_failed"] is True
+    assert out["task_id"] == "tid-1"                 # номерок на месте

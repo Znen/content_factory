@@ -14,7 +14,8 @@ def _settings(tmp_path, cap=None):
         writer_final_target="nano/gemini-image", dreamina_bin="dreamina",
         dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast",
         magnific_api_key="mk-test", magnific_base_url="https://api.magnific.com",
-        magnific_timeout=180, magnific_poll_interval=3)
+        magnific_timeout=180, magnific_poll_interval=3,
+        magnific_download_timeout=120, magnific_download_retries=3)
 
 
 class _FakeComfy:
@@ -462,3 +463,57 @@ def test_magnific_tool_registered():
     mcp, _ = build_server()
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert "gf_generate_magnific" in names
+
+
+# ── FIX A: относительный project → fail-closed ДО траты/записи ─────────────
+
+def test_draft_relative_project_fail_closed(tmp_path):
+    w = _OkAutoWriter()
+    out = _generate_draft_impl("ingosstrakh", "task", 1, "", 0,
+                               settings=_settings(tmp_path), comfy=_FakeComfy(), writer=w)
+    assert "error" in out and "абсолют" in out["error"].lower() and "ingosstrakh" in out["error"]
+    assert out["images"] == []
+    assert w.calls == []            # guard до райтера — токены не потрачены
+
+
+def test_final_relative_project_fail_closed(tmp_path):
+    w = _OkAutoWriter()
+    out = _generate_final_impl("ingosstrakh", "task", [], "9:16",
+                               settings=_settings(tmp_path), nano=_FakeNano(), writer=w)
+    assert "error" in out and out["images"] == [] and w.calls == []
+
+
+def test_magnific_relative_project_fail_closed(tmp_path):
+    from gf.mcp_server import _generate_magnific_impl
+    w = _OkAutoWriter()
+    m = _FakeMagnific()
+    out = _generate_magnific_impl("ingosstrakh", "mystic", "x",
+                                  settings=_settings(tmp_path), writer=w, magnific=m)
+    assert "error" in out and "абсолют" in out["error"].lower()
+    assert m.calls == [] and w.calls == []
+
+
+def test_video_relative_project_fail_closed(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina()
+    out = _generate_video_impl("ingosstrakh", "t2v", "x",
+                               settings=_settings(tmp_path), dreamina=d, writer=_OkAutoWriter())
+    assert "error" in out and "абсолют" in out["error"].lower()
+    assert d.submit_calls == []
+
+
+# ── FIX B: gf_generate_magnific пробрасывает CDN-URL при упавшем скачивании ─
+
+def test_magnific_download_failed_surfaces_urls_and_logs_cost(tmp_path):
+    m = _FakeMagnific(result={"images": [], "task_id": "tid-X", "timed_out": False,
+                              "image_urls": ["https://cdn.freepik/img.png"],
+                              "download_failed": True})
+    out = _gen_magn(tmp_path, model="mystic", prompt="x", raw=True,
+                    writer=_OkAutoWriter(), magnific=m)
+    assert out["download_failed"] is True
+    assert out["image_urls"] == ["https://cdn.freepik/img.png"]
+    assert out["images"] == []
+    assert out["task_id"] == "tid-X"
+    assert out.get("warning")                       # предупреждение о ручном заборе
+    # оплаченный результат (задача COMPLETED) → стоимость логируется даже без локальной картинки
+    assert (tmp_path / "media" / ".gf_cost_log.jsonl").exists()

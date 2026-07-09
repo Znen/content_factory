@@ -97,3 +97,12 @@ def test_magnific_settings_overrides(monkeypatch):
     s = load_settings()
     assert s.magnific_api_key == "mk-123"
     assert s.magnific_timeout == 90
+
+
+def test_magnific_download_settings_defaults(monkeypatch):
+    for var in ("GF_MAGNIFIC_DOWNLOAD_TIMEOUT", "GF_MAGNIFIC_DOWNLOAD_RETRIES"):
+        monkeypatch.delenv(var, raising=False)
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.magnific_download_timeout == 120
+    assert s.magnific_download_retries == 3

@@ -32,7 +32,9 @@ See `.env.example`. Key vars: `GF_COMFYUI_URL` (8188), `GF_COMFYUI_CKPT`, `GF_NA
 (3001), `GF_IMAGE_CAP_USD` (soft cap), `GF_MCP_PORT` (8766), `GF_MCP_TOKEN`. Video (Dreamina):
 `GF_DREAMINA_BIN` (`dreamina`), `GF_DREAMINA_POLL_WAIT` (180s), `GF_DREAMINA_MODEL`
 (`seedance2.0fast`). Magnific (images/REST): `GF_MAGNIFIC_API_KEY`, `GF_MAGNIFIC_BASE_URL`
-(`https://api.magnific.com`), `GF_MAGNIFIC_TIMEOUT` (180s), `GF_MAGNIFIC_POLL_INTERVAL` (3s).
+(`https://api.magnific.com`), `GF_MAGNIFIC_TIMEOUT` (180s), `GF_MAGNIFIC_POLL_INTERVAL` (3s),
+`GF_MAGNIFIC_DOWNLOAD_TIMEOUT` (120s), `GF_MAGNIFIC_DOWNLOAD_RETRIES` (3).
+`project` must be an **absolute** path — generators refuse a relative path (fail-closed).
 Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
 
 ## External services

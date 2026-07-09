@@ -82,7 +82,8 @@ def _settings(enabled=True):
         writer_final_target="nano/gemini-image", dreamina_bin="dreamina",
         dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast",
         magnific_api_key="mk-test", magnific_base_url="https://api.magnific.com",
-        magnific_timeout=180, magnific_poll_interval=3)
+        magnific_timeout=180, magnific_poll_interval=3,
+        magnific_download_timeout=120, magnific_download_retries=3)
 
 
 class _Block:

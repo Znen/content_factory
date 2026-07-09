@@ -9,6 +9,20 @@ def today() -> str:
     return dt.date.today().isoformat()
 
 
+def require_absolute_project(project: "str | Path") -> Path:
+    """project ДОЛЖЕН быть абсолютным путём к папке проекта. Иначе ValueError.
+
+    Иначе относительный путь резолвится от CWD gf-процесса (у Hermes — чужой рабочий
+    каталог) и результаты уходят мимо проекта. Курация давно это валидирует — генераторы нет.
+    """
+    p = Path(project)
+    if not p.is_absolute():
+        raise ValueError(
+            f"project должен быть абсолютным путём к папке проекта, получено '{project}'; "
+            f"передай полный путь, напр. Q:/1brain/.../projects/<name>")
+    return p
+
+
 def _generated(project_dir: Path, date: str) -> Path:
     return Path(project_dir) / "media" / "generated" / date
 
