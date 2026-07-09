@@ -55,3 +55,24 @@ def test_writer_settings_overrides(monkeypatch):
     s = load_settings()
     assert s.writer_model == "claude-haiku-4-5"
     assert s.writer_enabled is False
+
+
+def test_dreamina_settings_defaults(monkeypatch):
+    for var in ("GF_DREAMINA_BIN", "GF_DREAMINA_POLL_WAIT", "GF_DREAMINA_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.dreamina_bin == "dreamina"
+    assert s.dreamina_poll_wait == 180
+    assert s.dreamina_default_model == "seedance2.0fast"
+
+
+def test_dreamina_settings_overrides(monkeypatch):
+    monkeypatch.setenv("GF_DREAMINA_BIN", "/opt/dreamina")
+    monkeypatch.setenv("GF_DREAMINA_POLL_WAIT", "60")
+    monkeypatch.setenv("GF_DREAMINA_MODEL", "seedance2.0_vip")
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.dreamina_bin == "/opt/dreamina"
+    assert s.dreamina_poll_wait == 60
+    assert s.dreamina_default_model == "seedance2.0_vip"

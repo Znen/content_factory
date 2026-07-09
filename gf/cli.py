@@ -67,6 +67,43 @@ def list_targets_cmd():
     _echo({"targets": list_targets()})
 
 
+@app.command("generate-video")
+def generate_video_cmd(project: str, mode: str, prompt: str,
+                       image: str = typer.Option("", help="i2v: стартовый кадр (winner)"),
+                       first: str = typer.Option("", help="frames: стартовый кадр"),
+                       last: str = typer.Option("", help="frames: финальный кадр"),
+                       images: Optional[List[str]] = typer.Option(None, help="multimodal: картинки (повторяемо)"),
+                       video: Optional[List[str]] = typer.Option(None, help="multimodal: видео (повторяемо)"),
+                       audio: Optional[List[str]] = typer.Option(None, help="multimodal: аудио (повторяемо)"),
+                       model: str = typer.Option("", help="seedance2.0[fast][_vip]; пусто → дефолт"),
+                       duration: int = typer.Option(5, help="4-15с"),
+                       ratio: str = typer.Option("", help="t2v/multimodal, напр. 16:9"),
+                       resolution: str = typer.Option("720p", help="720p | 1080p (VIP multimodal)"),
+                       raw: bool = typer.Option(False, help="не переписывать промпт райтером")):
+    """Seedance video через Dreamina (нужен залогиненный CLI + кредиты). mode: i2v|t2v|frames|multimodal."""
+    from .core import build_core
+    from .mcp_server import _generate_video_impl
+    _echo(_generate_video_impl(project, mode, prompt, image, first, last, images or None,
+                               video or None, audio or None, model, duration, ratio, resolution,
+                               raw, settings=build_core().settings))
+
+
+@app.command("list-video-jobs")
+def list_video_jobs_cmd(project: str):
+    """Реестр видео-задач проекта + живой статус."""
+    from .core import build_core
+    from .mcp_server import _list_video_jobs_impl
+    _echo(_list_video_jobs_impl(project, settings=build_core().settings))
+
+
+@app.command("fetch-video")
+def fetch_video_cmd(project: str, submit_id: str):
+    """Дозабрать готовый клип по submit_id."""
+    from .core import build_core
+    from .mcp_server import _fetch_video_impl
+    _echo(_fetch_video_impl(project, submit_id, settings=build_core().settings))
+
+
 def _echo(result: dict) -> None:
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 

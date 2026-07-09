@@ -79,7 +79,8 @@ def _settings(enabled=True):
         nano_timeout=120, image_cap_usd=None, mcp_bind="127.0.0.1", mcp_port=8766,
         mcp_token=None, writer_model="claude-sonnet-5", writer_max_tokens=2000,
         writer_enabled=enabled, writer_draft_target="comfyui/sdxl-test",
-        writer_final_target="nano/gemini-image")
+        writer_final_target="nano/gemini-image", dreamina_bin="dreamina",
+        dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast")
 
 
 class _Block:

@@ -9,6 +9,11 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
   → `<project>/media/generated/<date>/_drafts/draft-NN.png`.
 - `gf_generate_final(project, prompt, refs=None, aspect="9:16")` — Nano Banana final (≤4 refs)
   → `<project>/media/generated/<date>/nano_*.png`.
+- `gf_generate_video(project, mode, prompt, ...)` — Seedance video via Dreamina CLI
+  (`mode`: i2v|t2v|frames|multimodal). Hybrid wait: downloads the mp4 if ready within
+  `GF_DREAMINA_POLL_WAIT`, otherwise records `submit_id` (pending) in `.gf_video_jobs.jsonl`.
+- `gf_list_video_jobs(project)` / `gf_fetch_video(project, submit_id)` — registry status +
+  pick up a finished clip by its ticket.
 
 `project` is the absolute path to the project folder.
 
@@ -24,7 +29,9 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
 ## Config (env / .env)
 
 See `.env.example`. Key vars: `GF_COMFYUI_URL` (8188), `GF_COMFYUI_CKPT`, `GF_NANO_SERVER_URL`
-(3001), `GF_IMAGE_CAP_USD` (soft cap), `GF_MCP_PORT` (8766), `GF_MCP_TOKEN`.
+(3001), `GF_IMAGE_CAP_USD` (soft cap), `GF_MCP_PORT` (8766), `GF_MCP_TOKEN`. Video (Dreamina):
+`GF_DREAMINA_BIN` (`dreamina`), `GF_DREAMINA_POLL_WAIT` (180s), `GF_DREAMINA_MODEL`
+(`seedance2.0fast`). Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
 
 ## External services
 

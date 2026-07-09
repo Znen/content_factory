@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import pricing, budget as budget_mod, media, writer as writer_mod
-from .backends import nano as nano_mod, comfyui as comfyui_mod
+from . import pricing, budget as budget_mod, media, writer as writer_mod, video_jobs as jobs_mod
+from .backends import nano as nano_mod, comfyui as comfyui_mod, dreamina as dreamina_mod
 
 
 def _maybe_rewrite(project, task, negative, target, *, settings, writer):
@@ -66,6 +66,107 @@ def _generate_final_impl(project: str, prompt: str, refs: "list | None" = None, 
     return {"images": [str(p) for p in saved], "backend": "nano",
             "cost_usd": cost, "spent_usd": budget.spent(project_dir),
             "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped}
+
+
+def _credit_note(credits: int, model: str, resolution: str) -> str:
+    # Курс кредита JiMeng→USD не задан (спека §5.4) — учитываем в кредитах, cost_usd=0.
+    return f"{credits} credits ({model}, {resolution})"
+
+
+def _generate_video_impl(project: str, mode: str, prompt: str, image: str = "", first: str = "",
+                         last: str = "", images: "list | None" = None, video: "list | None" = None,
+                         audio: "list | None" = None, model: str = "", duration: int = 5,
+                         ratio: str = "", resolution: str = "720p", raw: bool = False, *,
+                         settings, dreamina=dreamina_mod, budget=budget_mod, writer=writer_mod,
+                         jobs=jobs_mod) -> dict:
+    """Сгенерировать видео через Dreamina (Seedance). Гибрид: ждёт до poll; не успел → pending."""
+    model = model or settings.dreamina_default_model
+    prompt_used, prompt_log, skipped = prompt, None, None
+    if not raw:
+        prompt_used, _neg_ignored, prompt_log, skipped = _maybe_rewrite(
+            project, prompt, "", "video/seedance-2-0", settings=settings, writer=writer)
+
+    project_dir = Path(project)
+    date = media.today()
+    out_dir = media.generated_dir(project_dir, date)
+    credits = pricing.estimate_dreamina_credits(model, resolution, duration)
+
+    warning = None
+    if resolution == "1080p":
+        warning = ("1080p у Seedance стоит ~×3 от 720p и работает только через "
+                   "mode=multimodal + model=seedance2.0_vip — проверь параметры и кредиты.")
+
+    try:
+        res = dreamina.submit(mode, prompt=prompt_used, model=model, out_dir=out_dir,
+                              duration=duration, ratio=ratio, resolution=resolution,
+                              poll=settings.dreamina_poll_wait, image=image, first=first, last=last,
+                              images=images, video=video, audio=audio, bin=settings.dreamina_bin)
+    except dreamina.DreaminaError as e:
+        return {"error": str(e), "backend": "dreamina", "prompt_used": prompt_used,
+                "prompt_log": prompt_log, "writer_skipped": skipped}
+
+    status = res["status"]
+    output = str(res["output"]) if res.get("output") else None
+    jobs.append_job(project_dir, {"submit_id": res.get("submit_id"), "mode": mode, "model": model,
+                                  "task": prompt, "prompt_used": prompt_used, "resolution": resolution,
+                                  "duration": duration, "status": status, "output": output,
+                                  "credits": credits, "date": date})
+    if status == "success":
+        budget.log_cost(project_dir, f"dreamina/{model}", 1, 0.0,
+                        note=_credit_note(credits, model, resolution))
+    return {"status": status, "submit_id": res.get("submit_id"), "output": output,
+            "backend": "dreamina", "model": model, "credits": credits,
+            "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped,
+            "warning": warning}
+
+
+def _fetch_video_impl(project: str, submit_id: str, *, settings, dreamina=dreamina_mod,
+                      budget=budget_mod, jobs=jobs_mod) -> dict:
+    """Дозабрать готовый клип по submit_id: query_result → скачать mp4, обновить реестр, учесть кредиты."""
+    project_dir = Path(project)
+    date = media.today()
+    out_dir = media.generated_dir(project_dir, date)
+    registry = {j.get("submit_id"): j for j in jobs.read_jobs(project_dir)}
+    rec = registry.get(submit_id, {})
+    try:
+        res = dreamina.fetch(submit_id, out_dir, mode=rec.get("mode", ""),
+                             bin=settings.dreamina_bin)
+    except dreamina.DreaminaError as e:
+        return {"error": str(e)}
+
+    status = res["status"]
+    output = str(res["output"]) if res.get("output") else None
+    if status == "success":
+        jobs.update_job(project_dir, submit_id, status="success", output=output)
+        credits = int(rec.get("credits", 0)) or pricing.estimate_dreamina_credits(
+            rec.get("model", settings.dreamina_default_model), rec.get("resolution", "720p"),
+            int(rec.get("duration", 5)))
+        budget.log_cost(project_dir, f"dreamina/{rec.get('model', 'seedance')}", 1, 0.0,
+                        note=_credit_note(credits, rec.get("model", "seedance"),
+                                          rec.get("resolution", "720p")))
+    elif status == "fail":
+        jobs.update_job(project_dir, submit_id, status="fail")
+    return {"status": status, "output": output, "fail_reason": res.get("fail_reason")}
+
+
+def _list_video_jobs_impl(project: str, *, settings, dreamina=dreamina_mod, jobs=jobs_mod) -> dict:
+    """Реестр видео-задач + живой статус из dreamina list_task (fail-open, если CLI недоступен)."""
+    project_dir = Path(project)
+    registry = jobs.read_jobs(project_dir)
+    live = {}
+    try:
+        for j in dreamina.list_jobs(bin=settings.dreamina_bin):
+            if j.get("submit_id"):
+                live[j["submit_id"]] = j.get("status")
+    except dreamina.DreaminaError:
+        pass
+    out = []
+    for rec in registry:
+        sid = rec.get("submit_id")
+        out.append({"submit_id": sid, "mode": rec.get("mode"), "model": rec.get("model"),
+                    "task": rec.get("task"), "status": rec.get("status"),
+                    "output": rec.get("output"), "live_status": live.get(sid)})
+    return {"jobs": out}
 
 
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
@@ -143,6 +244,31 @@ def build_server():
             return {"targets": writer_mod.list_targets()}
         except writer_mod.WriterError as e:
             return {"error": str(e)}
+
+    @mcp.tool()
+    def gf_generate_video(project: str, mode: str, prompt: str,
+                          image: str = "", first: str = "", last: str = "",
+                          images: "list | None" = None, video: "list | None" = None,
+                          audio: "list | None" = None, model: str = "",
+                          duration: int = 5, ratio: str = "", resolution: str = "720p",
+                          raw: bool = False) -> dict:
+        """Сгенерировать видео через Dreamina (Seedance). mode: i2v|t2v|frames|multimodal.
+        prompt = задача движения (райтер перепишет по video/seedance-2-0); raw=True — дословно.
+        Гибрид: ждёт до GF_DREAMINA_POLL_WAIT сек; не успел → submit_id (pending) в реестр.
+        i2v: image (обычно winner). Возвращает status/submit_id/output/prompt_used/credits/warning."""
+        return _generate_video_impl(project, mode, prompt, image, first, last, images, video,
+                                    audio, model, duration, ratio, resolution, raw, settings=settings)
+
+    @mcp.tool()
+    def gf_list_video_jobs(project: str) -> dict:
+        """Реестр видео-задач проекта + их живой статус (из dreamina list_task)."""
+        return _list_video_jobs_impl(project, settings=settings)
+
+    @mcp.tool()
+    def gf_fetch_video(project: str, submit_id: str) -> dict:
+        """Дозабрать готовый клип по номерку: query_result → mp4 в media/generated/<date>/,
+        обновить реестр, учесть кредиты. querying → ещё не готово; fail → причина; success → путь."""
+        return _fetch_video_impl(project, submit_id, settings=settings)
 
     from . import curate
 

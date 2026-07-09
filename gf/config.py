@@ -19,6 +19,9 @@ class Settings:
     writer_enabled: bool
     writer_draft_target: str
     writer_final_target: str
+    dreamina_bin: str
+    dreamina_poll_wait: int
+    dreamina_default_model: str
 
 
 def _float_or_none(raw: str) -> "float | None":
@@ -56,4 +59,7 @@ def load_settings() -> Settings:
         writer_enabled=_bool(os.environ.get("GF_WRITER_ENABLED", ""), True),
         writer_draft_target=os.environ.get("GF_WRITER_DRAFT_TARGET", "comfyui/sdxl-juggernaut"),
         writer_final_target=os.environ.get("GF_WRITER_FINAL_TARGET", "nano/gemini-image"),
+        dreamina_bin=os.environ.get("GF_DREAMINA_BIN", "dreamina"),
+        dreamina_poll_wait=int(os.environ.get("GF_DREAMINA_POLL_WAIT", "180")),
+        dreamina_default_model=os.environ.get("GF_DREAMINA_MODEL", "seedance2.0fast"),
     )

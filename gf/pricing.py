@@ -24,3 +24,22 @@ def estimate_llm(model: str, input_tokens: int, output_tokens: int) -> float:
     """USD за один LLM-вызов по usage-токенам. Неизвестная модель -> консервативный дефолт."""
     inp, out = _TOKEN_USD_PER_MTOK.get(model, _DEFAULT_TOKEN_USD)
     return round((max(0, input_tokens) * inp + max(0, output_tokens) * out) / 1_000_000, 4)
+
+
+# Кредиты Dreamina/Seedance (JiMeng). Из DREAMINA_CLI.md — multimodal, 5-сек ориентир.
+# Точный курс кредита в USD не задан (см. spec §5.4) — учитываем в кредитах.
+# Не-VIP пары в доке числами не даны → неизвестное отдаёт консервативный максимум.
+_DREAMINA_CREDITS = {           # (model, resolution) -> credits per ~5s
+    ("seedance2.0fast_vip", "720p"): 55,
+    ("seedance2.0_vip", "720p"): 70,
+    ("seedance2.0_vip", "1080p"): 165,
+}
+_DREAMINA_MAX_CREDITS = 165     # консервативный дефолт для неизвестной пары
+
+
+def estimate_dreamina_credits(model: str, resolution: str, duration: int = 5) -> int:
+    """Оценка кредитов JiMeng за клип. Таблица — на ~5с, масштабируем линейно по duration.
+    Неизвестная (model, resolution) -> консервативный максимум."""
+    import math
+    base = _DREAMINA_CREDITS.get((model, resolution), _DREAMINA_MAX_CREDITS)
+    return int(math.ceil(base * max(1, duration) / 5))

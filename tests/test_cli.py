@@ -23,3 +23,10 @@ def test_help_lists_curation_commands():
     for c in ["add-variant", "set-winner", "list-sets",
               "materialize-winners", "discard", "adopt-set"]:
         assert c in r.output
+
+
+def test_help_lists_video_commands():
+    r = runner.invoke(app, ["--help"])
+    assert r.exit_code == 0
+    for c in ["generate-video", "list-video-jobs", "fetch-video"]:
+        assert c in r.output
