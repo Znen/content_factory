@@ -43,3 +43,19 @@ def estimate_dreamina_credits(model: str, resolution: str, duration: int = 5) ->
     import math
     base = _DREAMINA_CREDITS.get((model, resolution), _DREAMINA_MAX_CREDITS)
     return int(math.ceil(base * max(1, duration) / 5))
+
+
+# Magnific (Freepik) — приблизительные $ за картинку. Точные тарифы не публикуются;
+# источник истины — счёт Freepik/Magnific (кредиты). Числа грубые, для cost-gating.
+_MAGNIFIC_PER_IMAGE_USD = {
+    "mystic": 0.10,
+    "seedream-v4-5-edit": 0.06,
+    "flux-kontext-pro": 0.05,
+}
+_MAGNIFIC_DEFAULT_USD = 0.10          # неизвестная модель → консервативно дороже
+
+
+def estimate_magnific(model: str, n: int = 1) -> float:
+    """Приблизительная оценка $ за n картинок Magnific. Неизвестная модель → дефолт."""
+    per = _MAGNIFIC_PER_IMAGE_USD.get(model, _MAGNIFIC_DEFAULT_USD)
+    return round(per * max(0, n), 4)

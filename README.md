@@ -31,7 +31,9 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
 See `.env.example`. Key vars: `GF_COMFYUI_URL` (8188), `GF_COMFYUI_CKPT`, `GF_NANO_SERVER_URL`
 (3001), `GF_IMAGE_CAP_USD` (soft cap), `GF_MCP_PORT` (8766), `GF_MCP_TOKEN`. Video (Dreamina):
 `GF_DREAMINA_BIN` (`dreamina`), `GF_DREAMINA_POLL_WAIT` (180s), `GF_DREAMINA_MODEL`
-(`seedance2.0fast`). Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
+(`seedance2.0fast`). Magnific (images/REST): `GF_MAGNIFIC_API_KEY`, `GF_MAGNIFIC_BASE_URL`
+(`https://api.magnific.com`), `GF_MAGNIFIC_TIMEOUT` (180s), `GF_MAGNIFIC_POLL_INTERVAL` (3s).
+Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
 
 ## External services
 

@@ -12,7 +12,9 @@ def _settings(tmp_path, cap=None):
         mcp_token=None, writer_model="claude-sonnet-5", writer_max_tokens=2000,
         writer_enabled=False, writer_draft_target="comfyui/sdxl-juggernaut",
         writer_final_target="nano/gemini-image", dreamina_bin="dreamina",
-        dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast")
+        dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast",
+        magnific_api_key="mk-test", magnific_base_url="https://api.magnific.com",
+        magnific_timeout=180, magnific_poll_interval=3)
 
 
 class _FakeComfy:
@@ -337,3 +339,126 @@ def test_video_tools_registered():
     mcp, _ = build_server()
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"gf_generate_video", "gf_list_video_jobs", "gf_fetch_video"} <= names
+
+
+# ── Magnific-бэкенд: gf_generate_magnific ─────────────────────────────────
+
+_MagnificError = __import__("gf.backends.magnific", fromlist=["MagnificError"]).MagnificError
+_MAGN_MODELS = __import__("gf.backends.magnific", fromlist=["_MODELS"])._MODELS
+
+
+class _FakeMagnific:
+    MagnificError = _MagnificError
+    _MODELS = _MAGN_MODELS
+
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.calls = []
+
+    def generate(self, prompt, refs, out_dir, **kw):
+        self.calls.append((prompt, kw))
+        if self.error:
+            raise self.MagnificError(self.error)
+        if self.result is not None:
+            return self.result
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        p = out_dir / "magnific_seedream_x.png"
+        p.write_bytes(b"IMG")
+        return {"images": [p], "task_id": "tid-9", "timed_out": False}
+
+
+def _gen_magn(tmp_path, **kw):
+    from gf.mcp_server import _generate_magnific_impl
+    s = kw.pop("settings", None) or _settings(tmp_path)
+    return _generate_magnific_impl(str(tmp_path), settings=s, **kw)
+
+
+def test_magnific_raw_true_skips_writer(tmp_path):
+    w = _OkAutoWriter()
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="mystic", prompt="as is", raw=True, writer=w, magnific=m)
+    assert w.calls == []
+    assert out["prompt_used"] == "as is"
+    assert out["backend"] == "magnific" and out["model"] == "mystic"
+    assert out["task_id"] == "tid-9" and out["timed_out"] is False
+
+
+def test_magnific_auto_uses_model_target(tmp_path):
+    w = _OkAutoWriter()
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="seedream-v4-5-edit", prompt="оживить",
+                    refs=["r.png"], writer=w, magnific=m)
+    assert w.calls == ["magnific/seedream-v4-5-edit"]
+    assert out["prompt_used"] == "REWRITTEN"
+    assert m.calls[0][0] == "REWRITTEN"
+
+
+def test_magnific_unknown_model_clean_error(tmp_path):
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="nope", prompt="x", raw=True,
+                    writer=_OkAutoWriter(), magnific=m)
+    assert "error" in out and "mystic" in out["error"]
+    assert m.calls == []            # бэкенд не вызван
+
+
+def test_magnific_no_api_key_fail_closed(tmp_path):
+    s = _settings(tmp_path)
+    s.magnific_api_key = None
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="mystic", prompt="x", raw=True,
+                    settings=s, writer=_OkAutoWriter(), magnific=m)
+    assert "error" in out and "GF_MAGNIFIC_API_KEY" in out["error"]
+    assert m.calls == []
+
+
+def test_magnific_budget_gate_blocks(tmp_path):
+    s = _settings(tmp_path, cap=0.0)
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="mystic", prompt="x", raw=True,
+                    settings=s, writer=_OkAutoWriter(), magnific=m)
+    assert "error" in out and out["images"] == []
+    assert m.calls == []            # до траты
+
+
+def test_magnific_writer_failure_fail_open(tmp_path):
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="mystic", prompt="задача",
+                    writer=_FailAutoWriter(), magnific=m)
+    assert out["writer_skipped"] == "ключ протух"
+    assert m.calls[0][0] == "задача"    # сырой текст ушёл в генерацию
+
+
+def test_magnific_error_fail_closed(tmp_path):
+    m = _FakeMagnific(error="Magnific: нет доступа/кредитов (HTTP 402)")
+    out = _gen_magn(tmp_path, model="mystic", prompt="x", raw=True,
+                    writer=_OkAutoWriter(), magnific=m)
+    assert "error" in out and "402" in out["error"]
+
+
+def test_magnific_timed_out_no_budget_log(tmp_path):
+    m = _FakeMagnific(result={"images": [], "task_id": "tid-P", "timed_out": True})
+    out = _gen_magn(tmp_path, model="mystic", prompt="x", raw=True,
+                    writer=_OkAutoWriter(), magnific=m)
+    assert out["timed_out"] is True and out["task_id"] == "tid-P"
+    assert out["images"] == []
+    assert not (tmp_path / "media" / ".gf_cost_log.jsonl").exists()   # трата без картинки не логируется
+
+
+def test_magnific_success_logs_cost(tmp_path):
+    import json
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="seedream-v4-5-edit", prompt="x", refs=["r.png"],
+                    raw=True, writer=_OkAutoWriter(), magnific=m)
+    assert len(out["images"]) == 1 and out["cost_usd"] > 0
+    rec = json.loads((tmp_path / "media" / ".gf_cost_log.jsonl").read_text().splitlines()[-1])
+    assert rec["backend"] == "magnific/seedream-v4-5-edit"
+
+
+def test_magnific_tool_registered():
+    import asyncio
+    from gf.mcp_server import build_server
+    mcp, _ = build_server()
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert "gf_generate_magnific" in names

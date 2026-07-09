@@ -76,3 +76,24 @@ def test_dreamina_settings_overrides(monkeypatch):
     assert s.dreamina_bin == "/opt/dreamina"
     assert s.dreamina_poll_wait == 60
     assert s.dreamina_default_model == "seedance2.0_vip"
+
+
+def test_magnific_settings_defaults(monkeypatch):
+    for var in ("GF_MAGNIFIC_API_KEY", "GF_MAGNIFIC_BASE_URL",
+                "GF_MAGNIFIC_TIMEOUT", "GF_MAGNIFIC_POLL_INTERVAL"):
+        monkeypatch.delenv(var, raising=False)
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.magnific_api_key is None
+    assert s.magnific_base_url == "https://api.magnific.com"
+    assert s.magnific_timeout == 180
+    assert s.magnific_poll_interval == 3
+
+
+def test_magnific_settings_overrides(monkeypatch):
+    monkeypatch.setenv("GF_MAGNIFIC_API_KEY", "mk-123")
+    monkeypatch.setenv("GF_MAGNIFIC_TIMEOUT", "90")
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.magnific_api_key == "mk-123"
+    assert s.magnific_timeout == 90

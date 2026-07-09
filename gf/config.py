@@ -22,6 +22,10 @@ class Settings:
     dreamina_bin: str
     dreamina_poll_wait: int
     dreamina_default_model: str
+    magnific_api_key: "str | None"
+    magnific_base_url: str
+    magnific_timeout: int
+    magnific_poll_interval: int
 
 
 def _float_or_none(raw: str) -> "float | None":
@@ -62,4 +66,8 @@ def load_settings() -> Settings:
         dreamina_bin=os.environ.get("GF_DREAMINA_BIN", "dreamina"),
         dreamina_poll_wait=int(os.environ.get("GF_DREAMINA_POLL_WAIT", "180")),
         dreamina_default_model=os.environ.get("GF_DREAMINA_MODEL", "seedance2.0fast"),
+        magnific_api_key=os.environ.get("GF_MAGNIFIC_API_KEY") or None,
+        magnific_base_url=os.environ.get("GF_MAGNIFIC_BASE_URL", "https://api.magnific.com"),
+        magnific_timeout=int(os.environ.get("GF_MAGNIFIC_TIMEOUT", "180")),
+        magnific_poll_interval=int(os.environ.get("GF_MAGNIFIC_POLL_INTERVAL", "3")),
     )

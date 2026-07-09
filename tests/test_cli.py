@@ -30,3 +30,9 @@ def test_help_lists_video_commands():
     assert r.exit_code == 0
     for c in ["generate-video", "list-video-jobs", "fetch-video"]:
         assert c in r.output
+
+
+def test_help_lists_magnific_command():
+    r = runner.invoke(app, ["--help"])
+    assert r.exit_code == 0
+    assert "generate-magnific" in r.output

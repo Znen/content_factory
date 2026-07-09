@@ -80,7 +80,9 @@ def _settings(enabled=True):
         mcp_token=None, writer_model="claude-sonnet-5", writer_max_tokens=2000,
         writer_enabled=enabled, writer_draft_target="comfyui/sdxl-test",
         writer_final_target="nano/gemini-image", dreamina_bin="dreamina",
-        dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast")
+        dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast",
+        magnific_api_key="mk-test", magnific_base_url="https://api.magnific.com",
+        magnific_timeout=180, magnific_poll_interval=3)
 
 
 class _Block:

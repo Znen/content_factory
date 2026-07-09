@@ -104,6 +104,19 @@ def fetch_video_cmd(project: str, submit_id: str):
     _echo(_fetch_video_impl(project, submit_id, settings=build_core().settings))
 
 
+@app.command("generate-magnific")
+def generate_magnific_cmd(project: str, model: str, prompt: str,
+                          ref: Optional[List[str]] = typer.Option(None, help="референс (повторяемо)"),
+                          aspect: str = typer.Option("", help="enum Magnific, напр. widescreen_16_9"),
+                          raw: bool = typer.Option(False, help="не переписывать промпт райтером")):
+    """Картинка через Magnific/Freepik (нужен GF_MAGNIFIC_API_KEY).
+    model: mystic | seedream-v4-5-edit | flux-kontext-pro."""
+    from .core import build_core
+    from .mcp_server import _generate_magnific_impl
+    _echo(_generate_magnific_impl(project, model, prompt, ref or None, aspect, raw,
+                                  settings=build_core().settings))
+
+
 def _echo(result: dict) -> None:
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import pricing, budget as budget_mod, media, writer as writer_mod, video_jobs as jobs_mod
-from .backends import nano as nano_mod, comfyui as comfyui_mod, dreamina as dreamina_mod
+from .backends import (nano as nano_mod, comfyui as comfyui_mod, dreamina as dreamina_mod,
+                       magnific as magnific_mod)
 
 
 def _maybe_rewrite(project, task, negative, target, *, settings, writer):
@@ -169,6 +170,51 @@ def _list_video_jobs_impl(project: str, *, settings, dreamina=dreamina_mod, jobs
     return {"jobs": out}
 
 
+def _generate_magnific_impl(project: str, model: str, prompt: str, refs: "list | None" = None,
+                            aspect: str = "", raw: bool = False, *, settings,
+                            magnific=magnific_mod, budget=budget_mod, writer=writer_mod) -> dict:
+    """Сгенерировать картинку через Magnific (Freepik). Клон _generate_final_impl; model обязателен."""
+    # ранние чистые отказы (fail-closed) до траты денег/токенов
+    if model not in magnific._MODELS:
+        return {"error": f"Неизвестная модель Magnific {model!r} "
+                         f"(доступны: {sorted(magnific._MODELS)})", "images": []}
+    if not settings.magnific_api_key:
+        return {"error": "Нет GF_MAGNIFIC_API_KEY — укажи ключ Magnific в .env.", "images": []}
+
+    prompt_used, prompt_log, skipped = prompt, None, None
+    if not raw:
+        prompt_used, _neg_ignored, prompt_log, skipped = _maybe_rewrite(
+            project, prompt, "", f"magnific/{model}", settings=settings, writer=writer)
+
+    project_dir = Path(project)
+    refs = [str(r) for r in (refs or [])]
+    date = media.today()
+    out_dir = media.generated_dir(project_dir, date)
+    cost = pricing.estimate_magnific(model, 1)
+    gate = budget.check(project_dir, cost, settings.image_cap_usd)
+    if not gate["allowed"]:
+        return {"error": gate["reason"], "images": [], "backend": "magnific",
+                "model": model, "cost_usd": cost, "spent_usd": gate["spent"]}
+
+    try:
+        res = magnific.generate(prompt_used, refs, out_dir, model=model,
+                                base_url=settings.magnific_base_url,
+                                api_key=settings.magnific_api_key, aspect=aspect,
+                                timeout=settings.magnific_timeout,
+                                poll_interval=settings.magnific_poll_interval)
+    except magnific.MagnificError as e:
+        return {"error": str(e), "images": [], "backend": "magnific", "model": model,
+                "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped}
+
+    images = [str(p) for p in res.get("images", [])]
+    if images:   # трату логируем только по факту картинки (не при timed_out без результата)
+        budget.log_cost(project_dir, f"magnific/{model}", 1, cost, note=f"magnific {date}")
+    return {"images": images, "backend": "magnific", "model": model,
+            "cost_usd": cost, "spent_usd": budget.spent(project_dir),
+            "prompt_used": prompt_used, "prompt_log": prompt_log, "writer_skipped": skipped,
+            "task_id": res.get("task_id"), "timed_out": res.get("timed_out", False)}
+
+
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
                        aspect: str = "", extra: str = "", *, settings, writer=writer_mod) -> dict:
     try:
@@ -269,6 +315,17 @@ def build_server():
         """Дозабрать готовый клип по номерку: query_result → mp4 в media/generated/<date>/,
         обновить реестр, учесть кредиты. querying → ещё не готово; fail → причина; success → путь."""
         return _fetch_video_impl(project, submit_id, settings=settings)
+
+    @mcp.tool()
+    def gf_generate_magnific(project: str, model: str, prompt: str,
+                             refs: "list | None" = None, aspect: str = "",
+                             raw: bool = False) -> dict:
+        """Сгенерировать картинку через Magnific (Freepik). model обязателен:
+        mystic (t2i) | seedream-v4-5-edit (1-5 рефов, лицо+локация) | flux-kontext-pro (1 реф).
+        prompt = задача (райтер перепишет по magnific/<model>); raw=True — дословно.
+        refs — локальные пути (base64 в тело). aspect — enum Magnific (square_1_1, widescreen_16_9…).
+        Гибрид: таймаут → task_id + timed_out=true (Hermes может дозабрать позже)."""
+        return _generate_magnific_impl(project, model, prompt, refs, aspect, raw, settings=settings)
 
     from . import curate
 
