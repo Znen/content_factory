@@ -1,9 +1,32 @@
 # Задача: Magnific как бэкенд завода (`content-factory`)
 
-**Дата:** 2026-07-06
-**Статус:** дизайн одобрен (брейншторм с Киром), готов к реализации
+**Дата:** 2026-07-06 · **Обновлено:** 2026-07-09
+**Статус:** ✅ **РЕАЛИЗОВАНО** (коммит `99d7849`, live-смоук mystic → PNG 2048², суита 179 passed). Разделы ниже — исходный дизайн; **фактический контракт см. в блоке «Реальность» сразу ниже** (он расходится с дизайном и является источником истины).
 **Исполнитель:** Claude Code в терминале
 **Тип:** новая фича — третий генеративный бэкенд рядом с ComfyUI и Nano
+
+---
+
+## ⚠️ Реальность (подтверждено вживую 2026-07-09) — источник истины
+
+Дизайн ниже предполагал **Freepik** с upload-флоу; по факту поверхность — **Magnific API**, проще:
+
+| Аспект | Дизайн (ниже, устарел) | **Факт (реализовано)** |
+|---|---|---|
+| Host | `api.freepik.com` | **`https://api.magnific.com`** (`GF_MAGNIFIC_BASE_URL`) |
+| Auth-заголовок | `x-freepik-api-key` | **`x-magnific-api-key`** |
+| Env-переменная ключа | `GF_FREEPIK_API_KEY` | **`GF_MAGNIFIC_API_KEY`** |
+| Референсы | upload-флоу (request-upload→PUT→finalize) | **base64 прямо в теле POST — upload НЕ нужен** |
+| POST-путь | единый `/v1/ai/<model>` | **разный:** `mystic`→`/v1/ai/mystic`; `seedream-v4-5-edit`→`/v1/ai/text-to-image/seedream-v4-5-edit`; `flux-kontext-pro`→`/v1/ai/text-to-image/flux-kontext-pro` |
+| Поле рефов | обобщённое | **per-model:** mystic — без рефов (t2i); seedream — `reference_images[]` (1–5); flux — `input_image` (ровно 1) |
+| `aspect` | `"9:16"` и т.п. | **enum Magnific:** `square_1_1`, `widescreen_16_9`, `social_story_9_16`, … (пустой — не шлём) |
+| Async | POST→task_id, поллинг | **как в дизайне:** POST→`data.{task_id, status:"CREATED"}`; GET `<post-path>/{task_id}`→`status` CREATED\|IN_PROGRESS\|COMPLETED\|FAILED; картинки в `data.generated[]` (подписанные CDN-URL, качаются GET без ключа) |
+| Стоимость | плоская таблица per-model | ✅ так и есть (`pricing.estimate_magnific`, приблизительно) |
+| Ожидание | завод ждёт сам, таймаут→task_id | ✅ так и есть (`timed_out=true` + `task_id`) |
+
+Полный живой контракт — в docstring `gf/backends/magnific.py` (строки 6–20). Инструмент
+`gf_generate_magnific(project, model, prompt, refs=[], aspect="", raw=False)`, `model` обязателен
+(`mystic`/`seedream-v4-5-edit`/`flux-kontext-pro`). Ключ **подошёл** (баланс ~51.6K кредитов).
 
 ---
 
@@ -30,9 +53,9 @@
    - `gf/promptdocs/magnific/_catalog.md` — **важные предупреждения площадки** (upload-флоу,
      кредиты, circuit-breaker). Прочитай целиком.
 
-2. **СНАЧАЛА подтверди REST API Freepik (см. раздел 3) — это главный риск.** Точные эндпоинты,
-   имена полей и формат ответов у нас НЕ подтверждены. Не выдумывай URL. Если живого доступа
-   к докам/ключу нет — остановись и спроси Кира, а не пиши код против воображаемого API.
+2. ~~СНАЧАЛА подтверди REST API Freepik~~ — **сделано (2026-07-09):** контракт подтверждён вживую,
+   поверхность оказалась **Magnific API**, а не Freepik. Точные факты — в блоке «Реальность» выше
+   и в docstring `gf/backends/magnific.py`. Раздел 3 ниже (гипотезы про Freepik/upload) — устарел.
 
 3. Следуй процессу проекта: **TDD, тесты без живых API (инжектируемый `session`/`client`),
    fail-closed на явном пути, fail-open на авто-пути.** Разбивка на маленькие модули с ясной
@@ -74,7 +97,12 @@ Hermes даёт заводу задачу на естественном язык
 
 ---
 
-## 3. КРИТИЧНО: сначала подтверди REST API Freepik
+## 3. ~~КРИТИЧНО: сначала подтверди REST API Freepik~~ ⚠️ РАЗДЕЛ УСТАРЕЛ
+
+> **Этот раздел (и все упоминания Freepik/upload-флоу/`GF_FREEPIK_API_KEY` ниже) — исходные
+> гипотезы дизайна, НЕ подтвердившиеся.** Фактический контракт — в блоке «Реальность» вверху
+> и в docstring `gf/backends/magnific.py`: поверхность = Magnific API, ключ `GF_MAGNIFIC_API_KEY`,
+> upload не нужен. Читай разделы 3–7 ниже как исторический контекст, не как инструкцию.
 
 Наш `_catalog.md` собирался по веб-докам; **точные REST-детали не проверены**. Прежде чем писать
 `backends/magnific.py`, подтверди по живой документации Freepik (`docs.freepik.com` /
