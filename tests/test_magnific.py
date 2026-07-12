@@ -112,6 +112,41 @@ def test_build_payload_nano_banana_pro_too_many_refs(tmp_path):
         magnific._build_payload("nano-banana-pro", "x", refs, "")
 
 
+# ── FIX: per-model формат элемента reference_images (объекты vs голые строки) ──
+# nano-banana-pro ждёт reference_images как список ОБЪЕКТОВ {image, mime_type}
+# (голые строки → 400 "Input should be a valid dictionary"); seedream — голые строки.
+
+def test_build_payload_nano_banana_pro_refs_as_objects(tmp_path):
+    ref = _png(tmp_path)
+    path, body = magnific._build_payload("nano-banana-pro", "combine face and location", [ref], "")
+    assert path == "/v1/ai/text-to-image/nano-banana-pro"
+    imgs = body["reference_images"]
+    assert isinstance(imgs, list) and len(imgs) == 1
+    assert isinstance(imgs[0], dict)                       # объект, не голая строка
+    assert base64.b64decode(imgs[0]["image"]) == b"\x89PNG\r\n\x1a\nFAKE"
+    assert imgs[0]["mime_type"] == "image/png"
+
+
+def test_build_payload_seedream_refs_stay_bare_strings(tmp_path):
+    # регрессия: seedream по-прежнему шлёт голые base64-строки, НЕ объекты
+    ref = _png(tmp_path)
+    _, body = magnific._build_payload("seedream-v4-5-edit", "x", [ref], "")
+    assert all(isinstance(x, str) for x in body["reference_images"])
+    assert base64.b64decode(body["reference_images"][0]) == b"\x89PNG\r\n\x1a\nFAKE"
+
+
+def test_build_payload_nano_banana_pro_mime_jpeg(tmp_path):
+    ref = _png(tmp_path, "photo.jpg")                     # .jpg → image/jpeg
+    _, body = magnific._build_payload("nano-banana-pro", "x", [ref], "")
+    assert body["reference_images"][0]["mime_type"] == "image/jpeg"
+
+
+def test_build_payload_nano_banana_pro_mime_webp(tmp_path):
+    ref = _png(tmp_path, "sticker.webp")                  # .webp → image/webp
+    _, body = magnific._build_payload("nano-banana-pro", "x", [ref], "")
+    assert body["reference_images"][0]["mime_type"] == "image/webp"
+
+
 # ── generate: POST → poll → download (инъецируемый session) ───────────────
 
 _BASE = "https://api.magnific.com"

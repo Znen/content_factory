@@ -33,19 +33,26 @@ from pathlib import Path
 import requests
 
 DEFAULT_TIMEOUT = 180
-SUPPORTED_INPUT_MIMES = {".png", ".jpg", ".jpeg", ".webp"}
+# суффикс → MIME (nano-banana-pro требует mime_type в каждом объекте reference_images)
+SUPPORTED_INPUT_MIMES = {
+    ".png": "image/png", ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg", ".webp": "image/webp",
+}
 
-# per-model маршрутизация (подтверждено вживую)
+# per-model маршрутизация (подтверждено вживую). ref_item — формат ЭЛЕМЕНТА reference_images:
+#   "string" — голая base64-строка (seedream ждёт список строк);
+#   "object" — {image, mime_type} (nano-banana-pro: голые строки → 400 "valid dictionary").
 _MODELS = {
     "mystic": {"path": "/v1/ai/mystic", "ref_field": None},
     "seedream-v4-5-edit": {"path": "/v1/ai/text-to-image/seedream-v4-5-edit",
                            "ref_field": "reference_images", "ref_mode": "array",
-                           "ref_min": 1, "ref_max": 5},
+                           "ref_item": "string", "ref_min": 1, "ref_max": 5},
     "flux-kontext-pro": {"path": "/v1/ai/text-to-image/flux-kontext-pro",
                          "ref_field": "input_image", "ref_mode": "single",
-                         "ref_min": 1, "ref_max": 1},
+                         "ref_item": "string", "ref_min": 1, "ref_max": 1},
     "nano-banana-pro": {"path": "/v1/ai/text-to-image/nano-banana-pro",
                         "ref_field": "reference_images", "ref_mode": "array",
+                        "ref_item": "object",   # {image, mime_type}, НЕ голая строка
                         "ref_min": 0, "ref_max": 4},   # рефы опциональны (умеет t2i и multi-ref)
 }
 
@@ -76,15 +83,30 @@ class MagnificError(Exception):
     pass
 
 
+def _ref_mime(p: Path) -> str:
+    """Суффикс файла → MIME; неизвестный тип → MagnificError."""
+    mime = SUPPORTED_INPUT_MIMES.get(p.suffix.lower())
+    if not mime:
+        raise MagnificError(
+            f"Unsupported reference type: {p.name} (supported: {sorted(SUPPORTED_INPUT_MIMES)})")
+    return mime
+
+
 def encode_ref(path: "str | Path") -> str:
     """Локальный файл-картинку → base64-строку (для reference_images/input_image)."""
     p = Path(path)
     if not p.exists():
         raise MagnificError(f"Reference file not found: {p}")
-    if p.suffix.lower() not in SUPPORTED_INPUT_MIMES:
-        raise MagnificError(
-            f"Unsupported reference type: {p.name} (supported: {sorted(SUPPORTED_INPUT_MIMES)})")
+    _ref_mime(p)   # валидация типа (сообщение как раньше)
     return base64.b64encode(p.read_bytes()).decode("ascii")
+
+
+def encode_ref_object(path: "str | Path") -> dict:
+    """Локальный файл → {"image": base64, "mime_type": mime} (nano-banana-pro reference_images)."""
+    p = Path(path)
+    if not p.exists():
+        raise MagnificError(f"Reference file not found: {p}")
+    return {"image": base64.b64encode(p.read_bytes()).decode("ascii"), "mime_type": _ref_mime(p)}
 
 
 def _build_payload(model: str, prompt: str, refs: "list", aspect: str = "") -> "tuple[str, dict]":
@@ -107,7 +129,9 @@ def _build_payload(model: str, prompt: str, refs: "list", aspect: str = "") -> "
         if not (lo <= len(refs) <= hi):
             raise MagnificError(
                 f"Модель {model} требует {lo}-{hi} референс(ов), получено {len(refs)}")
-        encoded = [encode_ref(r) for r in refs]
+        # формат элемента per-model: object → {image, mime_type}; string → голый base64
+        enc = encode_ref_object if cfg.get("ref_item") == "object" else encode_ref
+        encoded = [enc(r) for r in refs]
         if encoded:   # пустой список рефов (ref_min=0, t2i) — поле не добавляем вовсе
             body[field] = encoded if cfg["ref_mode"] == "array" else encoded[0]
     return cfg["path"], body
