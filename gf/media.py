@@ -39,6 +39,13 @@ def generated_dir(project_dir: Path, date: str) -> Path:
     return d
 
 
+def video_dir(project_dir: Path, date: str) -> Path:
+    """Видео (оба бэкенда) — в generated/<date>/video/, отдельно от картинок (generated/<date>/)."""
+    d = _generated(project_dir, date) / "video"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def shot_dir(project_dir: Path, date: str, shot: str) -> Path:
     d = _generated(project_dir, date) / shot
     d.mkdir(parents=True, exist_ok=True)

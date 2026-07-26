@@ -615,6 +615,43 @@ def test_video_seedance_model_without_backend_goes_dreamina(tmp_path):
     assert out["backend"] == "dreamina" and d.submit_calls and m.calls == []
 
 
+def test_dreamina_video_saved_under_video_subdir(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    d = _FakeDreamina(submit_result={"status": "pending", "submit_id": "s", "output": None})
+    _generate_video_impl(str(tmp_path), "t2v", "x", raw=True, backend="dreamina",
+                         settings=_settings(tmp_path), dreamina=d, magnific=_FakeMagnVideo(),
+                         writer=_OkAutoWriter())
+    _, kw = d.submit_calls[0]
+    assert str(kw["out_dir"]).replace("\\", "/").rstrip("/").endswith("/video")
+
+
+def test_magnific_video_saved_under_video_subdir(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    from gf import media
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "t2v", "x", model="veo-3-1", backend="magnific",
+                               settings=_settings(tmp_path), magnific=m, writer=_OkAutoWriter())
+    assert "/video/" in out["output"].replace("\\", "/")
+    assert (tmp_path / "media" / "generated" / media.today() / "video" / "clip.mp4").exists()
+
+
+def test_magnific_image_stays_in_date_root_not_video(tmp_path):
+    m = _FakeMagnific()
+    out = _gen_magn(tmp_path, model="seedream-v4-5-edit", prompt="x", refs=["r.png"], raw=True,
+                    writer=_OkAutoWriter(), magnific=m)
+    assert out["images"] and "/video/" not in out["images"][0].replace("\\", "/")
+
+
+def test_kling_i2v_aspect_ignored_warning(tmp_path):
+    from gf.mcp_server import _generate_video_impl
+    m = _FakeMagnVideo()
+    out = _generate_video_impl(str(tmp_path), "i2v", "turn head", image="https://cdn/f.png",
+                               model="kling-v2-5-pro", backend="magnific", ratio="9:16",
+                               settings=_settings(tmp_path), magnific=m, writer=_OkAutoWriter())
+    w = (out.get("warning") or "").lower()
+    assert "кадр" in w or "пропорц" in w or "aspect" in w
+
+
 def test_video_magnific_download_failed_preserves_urls(tmp_path):
     from gf.mcp_server import _generate_video_impl
     m = _FakeMagnVideo(result={"videos": [], "task_id": "mt-9", "timed_out": False,

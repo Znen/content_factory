@@ -98,7 +98,7 @@ def _run_dreamina_video(project: str, mode: str, prompt: str, image: str = "", f
 
     project_dir = Path(project)
     date = media.today()
-    out_dir = media.generated_dir(project_dir, date)
+    out_dir = media.video_dir(project_dir, date)   # видео — в generated/<date>/video/
     credits = pricing.estimate_dreamina_credits(model, resolution, duration)
 
     warning = None
@@ -183,7 +183,7 @@ def _run_magnific_video(project: str, mode: str, task: str, image: str, model: s
 
     project_dir = Path(project)
     date = media.today()
-    out_dir = media.generated_dir(project_dir, date)
+    out_dir = media.video_dir(project_dir, date)   # видео — в generated/<date>/video/
     duration = _coerce_video_duration(magnific._VIDEO_MODELS, model, duration_in)
     aspect = _coerce_video_aspect(magnific._VIDEO_MODELS, model, ratio_in)
 
@@ -222,7 +222,12 @@ def _run_magnific_video(project: str, mode: str, task: str, image: str, model: s
            "prompt_log": prompt_log, "writer_skipped": skipped}
     if fallback:
         out["fallback"] = "magnific"
-    if res.get("download_failed"):
+    # Kling i2v держит пропорцию ВХОДНОГО кадра — aspect_ratio на i2v не применяется.
+    if model.startswith("kling") and (ratio_in or aspect):
+        out["warning"] = ("Kling i2v держит пропорцию ВХОДНОГО кадра — aspect_ratio на i2v "
+                          "не применяется. Готовь стартовый кадр в целевом соотношении "
+                          "(16:9 → 1536×864 или 1920×1080).")
+    if res.get("download_failed"):   # более срочное предупреждение перекрывает
         out["video_urls"] = video_urls
         out["download_failed"] = True
         out["warning"] = ("Видео не скачалось с CDN (кредиты уже списаны) — забери по "
@@ -272,7 +277,7 @@ def _fetch_video_impl(project: str, submit_id: str, *, settings, dreamina=dreami
     """Дозабрать готовый клип по submit_id: query_result → скачать mp4, обновить реестр, учесть кредиты."""
     project_dir = Path(project)
     date = media.today()
-    out_dir = media.generated_dir(project_dir, date)
+    out_dir = media.video_dir(project_dir, date)   # дозабор видео — тоже в video/
     registry = {j.get("submit_id"): j for j in jobs.read_jobs(project_dir)}
     rec = registry.get(submit_id, {})
     try:

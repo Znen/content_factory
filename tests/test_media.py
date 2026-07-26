@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 
 from gf.media import (drafts_dir, shot_dir, next_index, today, generated_dir,
-                      require_absolute_project)
+                      require_absolute_project, video_dir)
 
 
 def test_drafts_dir_created(tmp_path):
@@ -34,6 +34,12 @@ def test_generated_dir_created(tmp_path):
 def test_today_format():
     s = today()
     assert len(s) == 10 and s[4] == "-" and s[7] == "-"
+
+
+def test_video_dir_created_under_date(tmp_path):
+    d = video_dir(tmp_path, "2026-07-10")
+    assert d.exists()
+    assert d.as_posix().endswith("media/generated/2026-07-10/video")
 
 
 def test_require_absolute_project_ok(tmp_path):
