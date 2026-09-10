@@ -5,8 +5,10 @@ Contract:
 - submit: POST https://queue.fal.run/{endpoint_id}
 - workflows use endpoint IDs beginning with ``workflows/`` and the same queue contract
 - list authenticated workflows: GET https://api.fal.ai/v1/workflows
-- storage upload (fields that need real URLs): POST https://fal.ai/api/storage/upload/initiate
-  then PUT the bytes to the returned presigned upload_url (no Authorization on the PUT)
+- storage upload (fields that need real URLs): POST https://rest.fal.ai/storage/upload/initiate
+  then PUT the bytes to the returned presigned upload_url (no Authorization on the PUT).
+  The path carries no /api prefix: /api/storage/... answers 404, /storage/... answers 401
+  without a key (verified live 2026).
 
 The module deliberately exposes one public exception, ``FalError``. Messages never include
 the API key.
@@ -27,7 +29,7 @@ import requests
 
 DEFAULT_QUEUE_URL = "https://queue.fal.run"
 DEFAULT_API_URL = "https://api.fal.ai"
-DEFAULT_STORAGE_URL = "https://fal.ai"
+DEFAULT_STORAGE_URL = "https://rest.fal.ai"
 DEFAULT_TIMEOUT = 180
 DEFAULT_POLL_INTERVAL = 3
 DEFAULT_DOWNLOAD_TIMEOUT = 120
@@ -148,7 +150,7 @@ def upload_file(local_path: "str | Path", *, api_key: str | None,
                 session=None) -> str:
     """Upload a local file to fal storage; return its public ``file_url``.
 
-    Two steps per the storage contract: ``POST {api_url}/api/storage/upload/initiate``
+    Two steps per the storage contract: ``POST {api_url}/storage/upload/initiate``
     (authorized) hands back a presigned ``upload_url`` plus the final ``file_url``, then the
     raw bytes go to ``upload_url`` with ``PUT`` and **no** Authorization header (presigned).
     """
@@ -161,7 +163,7 @@ def upload_file(local_path: "str | Path", *, api_key: str | None,
     content_type = _mime_for_path(p)
     request_timeout = _upload_timeout(timeout)
     try:
-        resp = session.post(f"{api_url.rstrip('/')}/api/storage/upload/initiate",
+        resp = session.post(f"{api_url.rstrip('/')}/storage/upload/initiate",
                             headers=_headers(api_key),
                             json={"content_type": content_type, "file_name": p.name},
                             timeout=request_timeout)

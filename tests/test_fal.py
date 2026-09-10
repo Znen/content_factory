@@ -204,7 +204,7 @@ def test_download_failure_preserves_url(tmp_path):
 
 # ── fal storage upload (video_urls/image_urls/audio_urls ждут HTTP-URL, не data-URI) ──
 
-INITIATE_URL = "https://fal.ai/api/storage/upload/initiate"
+INITIATE_URL = "https://rest.fal.ai/storage/upload/initiate"
 PRESIGNED_URL = "https://upload.fal.media/presigned/abc"
 FILE_URL = "https://v3.fal.media/files/abc/f.mp4"
 
@@ -219,7 +219,7 @@ class _UploadSession(_Session):
             "upload_url": PRESIGNED_URL, "file_url": FILE_URL}
 
     def post(self, url, **kw):
-        if url.endswith("/api/storage/upload/initiate"):
+        if url.endswith("/storage/upload/initiate"):
             self.posts.append((url, kw))
             return _Resp(payload=self._initiate)
         return super().post(url, **kw)
