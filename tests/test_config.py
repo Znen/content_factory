@@ -12,7 +12,7 @@ def _no_dotenv(monkeypatch):
 
 def test_defaults(monkeypatch):
     for k in list(__import__("os").environ):
-        if k.startswith("GF_"):
+        if k.startswith("GF_") or k == "FAL_KEY":
             monkeypatch.delenv(k, raising=False)
     s = load_settings()
     assert s.comfyui_url == "http://127.0.0.1:8188"
@@ -23,6 +23,12 @@ def test_defaults(monkeypatch):
     assert s.mcp_bind == "127.0.0.1"
     assert s.mcp_port == 8766
     assert s.mcp_token is None
+    assert s.fal_key is None
+    assert s.fal_queue_url == "https://queue.fal.run"
+    assert s.fal_api_url == "https://api.fal.ai"
+    assert s.fal_timeout == 180
+    assert s.fal_poll_interval == 3
+    assert s.fal_download_timeout == 120
 
 
 def test_env_overrides(monkeypatch):
@@ -106,3 +112,20 @@ def test_magnific_download_settings_defaults(monkeypatch):
     s = load_settings()
     assert s.magnific_download_timeout == 120
     assert s.magnific_download_retries == 3
+
+
+def test_fal_settings_overrides(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fk-123")
+    monkeypatch.setenv("GF_FAL_QUEUE_URL", "https://queue.example")
+    monkeypatch.setenv("GF_FAL_API_URL", "https://api.example")
+    monkeypatch.setenv("GF_FAL_TIMEOUT", "60")
+    monkeypatch.setenv("GF_FAL_POLL_INTERVAL", "1")
+    monkeypatch.setenv("GF_FAL_DOWNLOAD_TIMEOUT", "30")
+    from gf.config import load_settings
+    s = load_settings()
+    assert s.fal_key == "fk-123"
+    assert s.fal_queue_url == "https://queue.example"
+    assert s.fal_api_url == "https://api.example"
+    assert s.fal_timeout == 60
+    assert s.fal_poll_interval == 1
+    assert s.fal_download_timeout == 30

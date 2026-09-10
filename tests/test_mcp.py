@@ -15,7 +15,10 @@ def _settings(tmp_path, cap=None):
         dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast",
         magnific_api_key="mk-test", magnific_base_url="https://api.magnific.com",
         magnific_timeout=180, magnific_poll_interval=3,
-        magnific_download_timeout=120, magnific_download_retries=3)
+        magnific_download_timeout=120, magnific_download_retries=3,
+        fal_key="fk-test", fal_queue_url="https://queue.fal.run",
+        fal_api_url="https://api.fal.ai", fal_timeout=180,
+        fal_poll_interval=3, fal_download_timeout=120)
 
 
 class _FakeComfy:
@@ -676,3 +679,116 @@ def test_magnific_download_failed_surfaces_urls_and_logs_cost(tmp_path):
     assert out.get("warning")                       # предупреждение о ручном заборе
     # оплаченный результат (задача COMPLETED) → стоимость логируется даже без локальной картинки
     assert (tmp_path / "media" / ".gf_cost_log.jsonl").exists()
+
+
+# ── fal.ai backend orchestration ───────────────────────────────────────────
+
+_FalError = __import__("gf.backends.fal", fromlist=["FalError"]).FalError
+
+
+class _FakeFal:
+    FalError = _FalError
+
+    @staticmethod
+    def validate_endpoint_id(endpoint):
+        return __import__("gf.backends.fal", fromlist=["validate_endpoint_id"]).validate_endpoint_id(endpoint)
+
+    def __init__(self, run_result=None, list_result=None, error=None):
+        self.run_result = run_result or {"status": "completed", "request_id": "rid",
+                                         "output": {"images": [{"url": "https://cdn/img.png"}]},
+                                         "media": {"images": ["/tmp/img.png"], "video": [],
+                                                   "audio": [], "files": []},
+                                         "media_urls": [], "warnings": []}
+        self.list_result = list_result or {"workflows": [{"endpoint_id": "workflows/a"}],
+                                           "next_cursor": None, "has_more": False, "total": 1}
+        self.error = error
+        self.run_calls = []
+        self.list_calls = []
+
+    def run(self, endpoint, input, **kw):
+        self.run_calls.append((endpoint, input, kw))
+        if self.error:
+            raise self.FalError(self.error)
+        return self.run_result
+
+    def list_workflows(self, **kw):
+        self.list_calls.append(kw)
+        if self.error:
+            raise self.FalError(self.error)
+        return self.list_result
+
+
+def test_fal_run_impl_requires_absolute_project():
+    from gf.mcp_server import _fal_run_impl
+    f = _FakeFal()
+    out = _fal_run_impl("relative", "fal-ai/nano-banana-pro", {"prompt": "x"},
+                        settings=_settings(Path(".")), fal=f)
+    assert out["status"] == "error" and "абсолют" in out["error"].lower()
+    assert f.run_calls == []
+
+
+def test_fal_run_impl_success_shape(tmp_path):
+    from gf.mcp_server import _fal_run_impl
+    f = _FakeFal()
+    out = _fal_run_impl(str(tmp_path), "fal-ai/nano-banana-pro", {"prompt": "x"},
+                        wait_seconds=5, settings=_settings(tmp_path), fal=f)
+    assert out["backend"] == "fal"
+    assert out["endpoint"] == "fal-ai/nano-banana-pro"
+    assert out["request_id"] == "rid"
+    assert out["raw_output"]["images"][0]["url"] == "https://cdn/img.png"
+    assert out["media"]["images"] == ["/tmp/img.png"]
+    assert out["cost_usd"] is None and "endpoint-specific" in out["pricing_note"]
+    assert f.run_calls[0][2]["timeout"] == 180
+    assert f.run_calls[0][2]["wait_seconds"] == 5
+
+
+def test_fal_run_impl_missing_key_no_project_side_effect(tmp_path):
+    from gf.mcp_server import _fal_run_impl
+    s = _settings(tmp_path)
+    s.fal_key = None
+    f = _FakeFal()
+    out = _fal_run_impl(str(tmp_path), "fal-ai/nano-banana-pro", {"prompt": "x"},
+                        settings=s, fal=f)
+    assert out["status"] == "error" and "FAL_KEY" in out["error"]
+    assert f.run_calls == []
+    assert not (tmp_path / "media").exists()
+
+
+def test_fal_run_impl_invalid_endpoint_no_project_side_effect(tmp_path):
+    from gf.mcp_server import _fal_run_impl
+    f = _FakeFal()
+    out = _fal_run_impl(str(tmp_path), "https://evil.example/model", {"prompt": "x"},
+                        settings=_settings(tmp_path), fal=f)
+    assert out["status"] == "error" and "endpoint" in out["error"]
+    assert f.run_calls == []
+    assert not (tmp_path / "media").exists()
+
+
+def test_fal_run_impl_pending_shape(tmp_path):
+    from gf.mcp_server import _fal_run_impl
+    f = _FakeFal(run_result={"status": "pending", "request_id": "rid",
+                             "status_url": "https://queue/status",
+                             "response_url": "https://queue/result"})
+    out = _fal_run_impl(str(tmp_path), "workflows/my-flow", {"prompt": "x"},
+                        settings=_settings(tmp_path), fal=f)
+    assert out["status"] == "pending"
+    assert out["status_url"] == "https://queue/status"
+    assert "raw_output" not in out
+
+
+def test_fal_list_workflows_impl(tmp_path):
+    from gf.mcp_server import _fal_list_workflows_impl
+    f = _FakeFal()
+    out = _fal_list_workflows_impl("cat", "fal-ai/x", 10, "c1",
+                                   settings=_settings(tmp_path), fal=f)
+    assert out["workflows"][0]["endpoint_id"] == "workflows/a"
+    assert f.list_calls[0]["search"] == "cat"
+    assert f.list_calls[0]["used_endpoint_ids"] == "fal-ai/x"
+
+
+def test_fal_tools_registered():
+    import asyncio
+    from gf.mcp_server import build_server
+    mcp, _ = build_server()
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"gf_fal_run", "gf_fal_list_workflows"} <= names

@@ -119,6 +119,36 @@ def generate_magnific_cmd(project: str, model: str, prompt: str,
                                   settings=build_core().settings))
 
 
+@app.command("fal-run")
+def fal_run_cmd(project: str, endpoint: str, input_json: str,
+                wait_seconds: Optional[int] = typer.Option(None, help="override total poll wait budget")):
+    """Run a fal.ai model/workflow endpoint. INPUT_JSON must be a JSON object string."""
+    from .core import build_core
+    from .mcp_server import _fal_run_impl
+    try:
+        payload = json.loads(input_json)
+    except json.JSONDecodeError as e:
+        _echo({"error": f"INPUT_JSON must be a JSON object: {e.msg}",
+               "status": "error", "backend": "fal"})
+        raise typer.Exit(code=1)
+    if not isinstance(payload, dict):
+        _echo({"error": "INPUT_JSON must be a JSON object", "status": "error", "backend": "fal"})
+        raise typer.Exit(code=1)
+    _echo(_fal_run_impl(project, endpoint, payload, wait_seconds, settings=build_core().settings))
+
+
+@app.command("fal-list-workflows")
+def fal_list_workflows_cmd(search: str = typer.Option("", help="workflow search"),
+                           used_endpoint_ids: str = typer.Option("", help="filter by used endpoint IDs"),
+                           limit: int = typer.Option(50, help="page size"),
+                           cursor: str = typer.Option("", help="pagination cursor")):
+    """List authenticated user's fal.ai workflows."""
+    from .core import build_core
+    from .mcp_server import _fal_list_workflows_impl
+    _echo(_fal_list_workflows_impl(search, used_endpoint_ids, limit, cursor,
+                                   settings=build_core().settings))
+
+
 def _echo(result: dict) -> None:
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 

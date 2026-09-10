@@ -83,7 +83,10 @@ def _settings(enabled=True):
         dreamina_poll_wait=180, dreamina_default_model="seedance2.0fast",
         magnific_api_key="mk-test", magnific_base_url="https://api.magnific.com",
         magnific_timeout=180, magnific_poll_interval=3,
-        magnific_download_timeout=120, magnific_download_retries=3)
+        magnific_download_timeout=120, magnific_download_retries=3,
+        fal_key="fk-test", fal_queue_url="https://queue.fal.run",
+        fal_api_url="https://api.fal.ai", fal_timeout=180,
+        fal_poll_interval=3, fal_download_timeout=120)
 
 
 class _Block:

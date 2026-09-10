@@ -14,6 +14,11 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
   `GF_DREAMINA_POLL_WAIT`, otherwise records `submit_id` (pending) in `.gf_video_jobs.jsonl`.
 - `gf_list_video_jobs(project)` / `gf_fetch_video(project, submit_id)` — registry status +
   pick up a finished clip by its ticket.
+- `gf_fal_run(project, endpoint, input, wait_seconds=None)` — run a fal.ai model endpoint or
+  authenticated workflow endpoint through the async queue. Downloads discovered output media to
+  `<project>/media/generated/<date>/` and video/audio to `<project>/media/generated/<date>/video/`.
+- `gf_fal_list_workflows(search="", used_endpoint_ids="", limit=50, cursor="")` — list the
+  authenticated user's fal.ai workflows.
 
 `project` is the absolute path to the project folder.
 
@@ -34,6 +39,9 @@ See `.env.example`. Key vars: `GF_COMFYUI_URL` (8188), `GF_COMFYUI_CKPT`, `GF_NA
 (`seedance2.0fast`). Magnific (images/REST): `GF_MAGNIFIC_API_KEY`, `GF_MAGNIFIC_BASE_URL`
 (`https://api.magnific.com`), `GF_MAGNIFIC_TIMEOUT` (180s), `GF_MAGNIFIC_POLL_INTERVAL` (3s),
 `GF_MAGNIFIC_DOWNLOAD_TIMEOUT` (120s), `GF_MAGNIFIC_DOWNLOAD_RETRIES` (3).
+fal.ai: `FAL_KEY`, `GF_FAL_QUEUE_URL` (`https://queue.fal.run`), `GF_FAL_API_URL`
+(`https://api.fal.ai`), `GF_FAL_TIMEOUT` (180s), `GF_FAL_POLL_INTERVAL` (3s),
+`GF_FAL_DOWNLOAD_TIMEOUT` (120s).
 `project` must be an **absolute** path — generators refuse a relative path (fail-closed).
 Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
 
@@ -43,6 +51,33 @@ Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
   Default checkpoint `juggernautxl_ragnarok.safetensors` (override `GF_COMFYUI_CKPT`).
 - **Nitro Express (Nano Banana)** at `R:\nitro_banana` — `npm run dev:server`, `:3001`.
   Password in `~/.lionfilms/nitro_banana.env` (`NITRO_BANANA_APP_PASSWORD`).
+- **fal.ai** queue API — set `FAL_KEY` in `.env`. The factory uses `Authorization: Key <FAL_KEY>`
+  but never prints the key. Inputs may include public URLs, data URIs, or explicit local file
+  markers such as `@R:/project/ref.png`; only `@...` markers are converted. A marker inside
+  `video_urls`/`image_urls`/`audio_urls` is **uploaded to fal storage** and replaced by the
+  returned `https://v3.fal.media/...` URL, because those fields reject data URIs (Seedance
+  reference-to-video); markers anywhere else become MIME-correct base64 data URIs. Plain
+  strings stay untouched. fal pricing is endpoint-specific, so `cost_usd` is returned as
+  `null` and not invented by the factory.
+
+## fal.ai examples
+
+    gf fal-run R:\Projects\demo fal-ai/nano-banana-pro "{\"prompt\":\"cinematic portrait\"}"
+    gf fal-run R:\Projects\demo workflows/my-workflow "{\"image\":\"@R:/Projects/demo/ref.png\"}"
+    gf fal-list-workflows --search portrait --limit 20
+
+Curated public fal endpoints verified for this integration note:
+
+- Model endpoints: `fal-ai/nano-banana-pro`;
+  `bytedance/seedance-2.0/text-to-video`, `bytedance/seedance-2.0/image-to-video`,
+  `bytedance/seedance-2.0/reference-to-video`, and their fast variants;
+  `fal-ai/kling-video/v3/standard/image-to-video`;
+  `fal-ai/wan-25-preview/image-to-video`.
+- Public workflow templates are browsable at <https://fal.ai/workflows/templates>. These are
+  templates, not your private workflow list.
+- Authenticated user workflows come from `gf fal-list-workflows` /
+  `gf_fal_list_workflows`, and endpoint IDs beginning with `workflows/` run through the same
+  queue contract as model endpoints.
 
 ## Tests
 

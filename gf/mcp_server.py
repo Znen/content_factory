@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import pricing, budget as budget_mod, media, writer as writer_mod, video_jobs as jobs_mod
 from .backends import (nano as nano_mod, comfyui as comfyui_mod, dreamina as dreamina_mod,
-                       magnific as magnific_mod)
+                       magnific as magnific_mod, fal as fal_mod)
 
 
 def _maybe_rewrite(project, task, negative, target, *, settings, writer):
@@ -381,6 +381,88 @@ def _generate_magnific_impl(project: str, model: str, prompt: str, refs: "list |
     return out
 
 
+def _fal_pricing_note() -> str:
+    return "fal.ai pricing is endpoint-specific; cost_usd is not estimated by this factory."
+
+
+def _fal_output_view(res: dict) -> dict:
+    output = res.get("output") if isinstance(res, dict) else None
+    if not isinstance(output, dict):
+        return {}
+    view = {}
+    if "images" in output:
+        view["images"] = output["images"]
+    if "image" in output:
+        view["image"] = output["image"]
+    if "video" in output:
+        view["video"] = output["video"]
+    if "audio" in output:
+        view["audio"] = output["audio"]
+    if "files" in output:
+        view["files"] = output["files"]
+    if "url" in output:
+        view["url"] = output["url"]
+    return view
+
+
+def _fal_run_impl(project: str, endpoint: str, input: dict, wait_seconds: "int | None" = None,
+                  *, settings, fal=fal_mod) -> dict:
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "status": "error", "backend": "fal", "endpoint": endpoint}
+    try:
+        if hasattr(fal, "validate_endpoint_id"):
+            fal.validate_endpoint_id(endpoint)
+        if not isinstance(input, dict):
+            raise fal.FalError("fal input must be a JSON object")
+    except fal.FalError as e:
+        return {"error": str(e), "status": "error", "backend": "fal", "endpoint": endpoint,
+                "cost_usd": None, "pricing_note": _fal_pricing_note()}
+    if not settings.fal_key:
+        return {"error": "Missing FAL_KEY. Set FAL_KEY in .env to use fal.ai.",
+                "status": "error", "backend": "fal", "endpoint": endpoint,
+                "cost_usd": None, "pricing_note": _fal_pricing_note()}
+    wait_budget = settings.fal_timeout if wait_seconds is None else int(wait_seconds)
+    out_dir = media.generated_dir(Path(project), media.today())
+    try:
+        res = fal.run(endpoint, input, api_key=settings.fal_key,
+                      queue_url=settings.fal_queue_url, timeout=settings.fal_timeout,
+                      wait_seconds=wait_budget,
+                      poll_interval=settings.fal_poll_interval,
+                      download_timeout=settings.fal_download_timeout,
+                      out_dir=out_dir)
+    except fal.FalError as e:
+        return {"error": str(e), "status": "error", "backend": "fal", "endpoint": endpoint,
+                "cost_usd": None, "pricing_note": _fal_pricing_note()}
+    out = {"backend": "fal", "endpoint": endpoint, "status": res.get("status"),
+           "request_id": res.get("request_id"), "cost_usd": None,
+           "pricing_note": _fal_pricing_note()}
+    if res.get("status") == "pending":
+        out.update({"status_url": res.get("status_url"), "response_url": res.get("response_url")})
+        return out
+    out.update({"outputs": _fal_output_view(res), "raw_output": res.get("output"),
+                "media": res.get("media", {}), "media_urls": res.get("media_urls", [])})
+    warnings = res.get("warnings") or []
+    if warnings:
+        out["warnings"] = warnings
+    return out
+
+
+def _fal_list_workflows_impl(search: str = "", used_endpoint_ids: str = "", limit: int = 50,
+                             cursor: str = "", *, settings, fal=fal_mod) -> dict:
+    try:
+        res = fal.list_workflows(api_key=settings.fal_key, api_url=settings.fal_api_url,
+                                 limit=limit, cursor=cursor, search=search,
+                                 used_endpoint_ids=used_endpoint_ids,
+                                 timeout=settings.fal_timeout)
+    except fal.FalError as e:
+        return {"error": str(e), "status": "error", "backend": "fal"}
+    return {"backend": "fal", "workflows": res.get("workflows", []),
+            "next_cursor": res.get("next_cursor"), "has_more": res.get("has_more"),
+            "total": res.get("total")}
+
+
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
                        aspect: str = "", extra: str = "", *, settings, writer=writer_mod) -> dict:
     try:
@@ -496,6 +578,24 @@ def build_server():
         refs — локальные пути (base64 в тело). aspect — enum Magnific (square_1_1, widescreen_16_9…).
         Гибрид: таймаут → task_id + timed_out=true (Hermes может дозабрать позже)."""
         return _generate_magnific_impl(project, model, prompt, refs, aspect, raw, settings=settings)
+
+    @mcp.tool()
+    def gf_fal_run(project: str, endpoint: str, input: dict,
+                   wait_seconds: "int | None" = None) -> dict:
+        """Run any fal.ai model or authenticated workflow endpoint through the queue API.
+        project must be an absolute path. Local file inputs are explicit markers:
+        @C:/path/file.png or @R:/path/file.png. A marker inside video_urls/image_urls/audio_urls
+        is uploaded to fal storage and replaced by its https URL (those fields reject data URIs,
+        e.g. Seedance reference-to-video); elsewhere a marker becomes a base64 data URI.
+        Cost is not estimated because fal pricing is endpoint-specific."""
+        return _fal_run_impl(project, endpoint, input, wait_seconds, settings=settings)
+
+    @mcp.tool()
+    def gf_fal_list_workflows(search: str = "", used_endpoint_ids: str = "",
+                              limit: int = 50, cursor: str = "") -> dict:
+        """List authenticated user's fal.ai workflows. Requires FAL_KEY."""
+        return _fal_list_workflows_impl(search, used_endpoint_ids, limit, cursor,
+                                        settings=settings)
 
     from . import curate
 

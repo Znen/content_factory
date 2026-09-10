@@ -28,6 +28,12 @@ class Settings:
     magnific_poll_interval: int
     magnific_download_timeout: int
     magnific_download_retries: int
+    fal_key: "str | None" = None
+    fal_queue_url: str = "https://queue.fal.run"
+    fal_api_url: str = "https://api.fal.ai"
+    fal_timeout: int = 180
+    fal_poll_interval: int = 3
+    fal_download_timeout: int = 120
 
 
 def _float_or_none(raw: str) -> "float | None":
@@ -74,4 +80,10 @@ def load_settings() -> Settings:
         magnific_poll_interval=int(os.environ.get("GF_MAGNIFIC_POLL_INTERVAL", "3")),
         magnific_download_timeout=int(os.environ.get("GF_MAGNIFIC_DOWNLOAD_TIMEOUT", "120")),
         magnific_download_retries=int(os.environ.get("GF_MAGNIFIC_DOWNLOAD_RETRIES", "3")),
+        fal_key=os.environ.get("FAL_KEY") or None,
+        fal_queue_url=os.environ.get("GF_FAL_QUEUE_URL", "https://queue.fal.run"),
+        fal_api_url=os.environ.get("GF_FAL_API_URL", "https://api.fal.ai"),
+        fal_timeout=int(os.environ.get("GF_FAL_TIMEOUT", "180")),
+        fal_poll_interval=int(os.environ.get("GF_FAL_POLL_INTERVAL", "3")),
+        fal_download_timeout=int(os.environ.get("GF_FAL_DOWNLOAD_TIMEOUT", "120")),
     )
