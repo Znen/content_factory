@@ -6,7 +6,8 @@ from pathlib import Path
 
 from . import pricing, budget as budget_mod, media, writer as writer_mod, video_jobs as jobs_mod
 from .backends import (nano as nano_mod, comfyui as comfyui_mod, dreamina as dreamina_mod,
-                       magnific as magnific_mod, fal as fal_mod)
+                       magnific as magnific_mod, fal as fal_mod,
+                       replicate as replicate_mod)
 
 
 def _maybe_rewrite(project, task, negative, target, *, settings, writer):
@@ -463,6 +464,53 @@ def _fal_list_workflows_impl(search: str = "", used_endpoint_ids: str = "", limi
             "total": res.get("total")}
 
 
+def _replicate_pricing_note() -> str:
+    return ("Replicate pricing is model/hardware-specific (billed by predict time); "
+            "cost_usd is not estimated by this factory.")
+
+
+def _replicate_run_impl(project: str, model: str, input: dict, wait_seconds: "int | None" = None,
+                        *, settings, replicate=replicate_mod) -> dict:
+    """Клон _fal_run_impl: все отказы (project/model/input/токен) — до media/ и до сети."""
+    base = {"backend": "replicate", "model": model, "cost_usd": None,
+            "pricing_note": _replicate_pricing_note()}
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "status": "error", **base}
+    try:
+        replicate.validate_model(model)
+        if not isinstance(input, dict):
+            raise replicate.ReplicateError("Replicate input must be a JSON object")
+    except replicate.ReplicateError as e:
+        return {"error": str(e), "status": "error", **base}
+    if not settings.replicate_token:
+        return {"error": "Missing REPLICATE_API_TOKEN. Set REPLICATE_API_TOKEN in .env to use "
+                         "Replicate.", "status": "error", **base}
+    wait_budget = settings.replicate_timeout if wait_seconds is None else int(wait_seconds)
+    out_dir = media.generated_dir(Path(project), media.today())
+    try:
+        res = replicate.run(model, input, api_key=settings.replicate_token,
+                            api_url=settings.replicate_base_url,
+                            timeout=settings.replicate_timeout, wait_seconds=wait_budget,
+                            poll_interval=settings.replicate_poll_interval,
+                            download_timeout=settings.replicate_download_timeout,
+                            out_dir=out_dir)
+    except replicate.ReplicateError as e:
+        return {"error": str(e), "status": "error", **base}
+    out = {**base, "status": res.get("status"), "id": res.get("id")}
+    if res.get("status") == "pending":
+        out["poll_url"] = res.get("poll_url")
+        return out
+    out.update({"outputs": res.get("output_urls", []), "raw_output": res.get("output"),
+                "media": res.get("media", {}), "media_urls": res.get("media_urls", [])})
+    if res.get("metrics"):
+        out["metrics"] = res["metrics"]
+    if res.get("warnings"):
+        out["warnings"] = res["warnings"]
+    return out
+
+
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
                        aspect: str = "", extra: str = "", *, settings, writer=writer_mod) -> dict:
     try:
@@ -596,6 +644,17 @@ def build_server():
         """List authenticated user's fal.ai workflows. Requires FAL_KEY."""
         return _fal_list_workflows_impl(search, used_endpoint_ids, limit, cursor,
                                         settings=settings)
+
+    @mcp.tool()
+    def gf_replicate_run(project: str, model: str, input: dict,
+                         wait_seconds: "int | None" = None) -> dict:
+        """Run any Replicate model through the predictions API. project must be an absolute path.
+        model: owner/name (official/latest) | owner/name:<64-hex version> | <64-hex version>.
+        Local file inputs are explicit markers anywhere in input (@C:/path/file.png, @R:/...):
+        each is uploaded via the Replicate Files API and replaced by its URL. Output media are
+        downloaded to media/generated/<date>/ (video/audio -> video/). Not finished within
+        wait_seconds -> status=pending + id/poll_url. Cost is not estimated (model/hardware-specific)."""
+        return _replicate_run_impl(project, model, input, wait_seconds, settings=settings)
 
     from . import curate
 

@@ -19,6 +19,10 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
   `<project>/media/generated/<date>/` and video/audio to `<project>/media/generated/<date>/video/`.
 - `gf_fal_list_workflows(search="", used_endpoint_ids="", limit=50, cursor="")` — list the
   authenticated user's fal.ai workflows.
+- `gf_replicate_run(project, model, input, wait_seconds=None)` — run any Replicate model
+  (`owner/name`, `owner/name:<version>` or a bare 64-hex version) through the predictions API.
+  `@R:/...` file markers anywhere in `input` are uploaded via the Replicate Files API; output
+  media are downloaded like fal's (video/audio → `video/`). Timeout → `pending` + `poll_url`.
 
 `project` is the absolute path to the project folder.
 
@@ -42,6 +46,9 @@ See `.env.example`. Key vars: `GF_COMFYUI_URL` (8188), `GF_COMFYUI_CKPT`, `GF_NA
 fal.ai: `FAL_KEY`, `GF_FAL_QUEUE_URL` (`https://queue.fal.run`), `GF_FAL_API_URL`
 (`https://api.fal.ai`), `GF_FAL_TIMEOUT` (180s), `GF_FAL_POLL_INTERVAL` (3s),
 `GF_FAL_DOWNLOAD_TIMEOUT` (120s).
+Replicate: `REPLICATE_API_TOKEN`, `GF_REPLICATE_BASE_URL` (`https://api.replicate.com`),
+`GF_REPLICATE_TIMEOUT` (180s), `GF_REPLICATE_POLL_INTERVAL` (3s),
+`GF_REPLICATE_DOWNLOAD_TIMEOUT` (120s).
 `project` must be an **absolute** path — generators refuse a relative path (fail-closed).
 Prompt writer: `ANTHROPIC_API_KEY`, `GF_WRITER_MODEL` (`claude-sonnet-5`).
 

@@ -119,22 +119,40 @@ def generate_magnific_cmd(project: str, model: str, prompt: str,
                                   settings=build_core().settings))
 
 
+def _input_json_or_exit(input_json: str, backend: str) -> dict:
+    """INPUT_JSON -> dict; иначе структурированная JSON-ошибка и exit 1 (не traceback)."""
+    try:
+        payload = json.loads(input_json)
+    except json.JSONDecodeError as e:
+        _echo({"error": f"INPUT_JSON must be a JSON object: {e.msg}",
+               "status": "error", "backend": backend})
+        raise typer.Exit(code=1)
+    if not isinstance(payload, dict):
+        _echo({"error": "INPUT_JSON must be a JSON object", "status": "error", "backend": backend})
+        raise typer.Exit(code=1)
+    return payload
+
+
 @app.command("fal-run")
 def fal_run_cmd(project: str, endpoint: str, input_json: str,
                 wait_seconds: Optional[int] = typer.Option(None, help="override total poll wait budget")):
     """Run a fal.ai model/workflow endpoint. INPUT_JSON must be a JSON object string."""
     from .core import build_core
     from .mcp_server import _fal_run_impl
-    try:
-        payload = json.loads(input_json)
-    except json.JSONDecodeError as e:
-        _echo({"error": f"INPUT_JSON must be a JSON object: {e.msg}",
-               "status": "error", "backend": "fal"})
-        raise typer.Exit(code=1)
-    if not isinstance(payload, dict):
-        _echo({"error": "INPUT_JSON must be a JSON object", "status": "error", "backend": "fal"})
-        raise typer.Exit(code=1)
+    payload = _input_json_or_exit(input_json, "fal")
     _echo(_fal_run_impl(project, endpoint, payload, wait_seconds, settings=build_core().settings))
+
+
+@app.command("replicate-run")
+def replicate_run_cmd(project: str, model: str, input_json: str,
+                      wait_seconds: Optional[int] = typer.Option(None, help="override total poll wait budget")):
+    """Run a Replicate model (owner/name | owner/name:VERSION | VERSION).
+    INPUT_JSON must be a JSON object string; @R:/... file markers are uploaded via Files API."""
+    from .core import build_core
+    from .mcp_server import _replicate_run_impl
+    payload = _input_json_or_exit(input_json, "replicate")
+    _echo(_replicate_run_impl(project, model, payload, wait_seconds,
+                              settings=build_core().settings))
 
 
 @app.command("fal-list-workflows")

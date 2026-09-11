@@ -34,6 +34,11 @@ class Settings:
     fal_timeout: int = 180
     fal_poll_interval: int = 3
     fal_download_timeout: int = 120
+    replicate_token: "str | None" = None
+    replicate_base_url: str = "https://api.replicate.com"
+    replicate_timeout: int = 180
+    replicate_poll_interval: int = 3
+    replicate_download_timeout: int = 120
 
 
 def _float_or_none(raw: str) -> "float | None":
@@ -86,4 +91,9 @@ def load_settings() -> Settings:
         fal_timeout=int(os.environ.get("GF_FAL_TIMEOUT", "180")),
         fal_poll_interval=int(os.environ.get("GF_FAL_POLL_INTERVAL", "3")),
         fal_download_timeout=int(os.environ.get("GF_FAL_DOWNLOAD_TIMEOUT", "120")),
+        replicate_token=os.environ.get("REPLICATE_API_TOKEN") or None,
+        replicate_base_url=os.environ.get("GF_REPLICATE_BASE_URL", "https://api.replicate.com"),
+        replicate_timeout=int(os.environ.get("GF_REPLICATE_TIMEOUT", "180")),
+        replicate_poll_interval=int(os.environ.get("GF_REPLICATE_POLL_INTERVAL", "3")),
+        replicate_download_timeout=int(os.environ.get("GF_REPLICATE_DOWNLOAD_TIMEOUT", "120")),
     )

@@ -129,3 +129,29 @@ def test_fal_settings_overrides(monkeypatch):
     assert s.fal_timeout == 60
     assert s.fal_poll_interval == 1
     assert s.fal_download_timeout == 30
+
+
+def test_replicate_settings_defaults(monkeypatch):
+    for var in ("REPLICATE_API_TOKEN", "GF_REPLICATE_BASE_URL", "GF_REPLICATE_TIMEOUT",
+                "GF_REPLICATE_POLL_INTERVAL", "GF_REPLICATE_DOWNLOAD_TIMEOUT"):
+        monkeypatch.delenv(var, raising=False)
+    s = load_settings()
+    assert s.replicate_token is None
+    assert s.replicate_base_url == "https://api.replicate.com"
+    assert s.replicate_timeout == 180
+    assert s.replicate_poll_interval == 3
+    assert s.replicate_download_timeout == 120
+
+
+def test_replicate_settings_overrides(monkeypatch):
+    monkeypatch.setenv("REPLICATE_API_TOKEN", "r8_123")
+    monkeypatch.setenv("GF_REPLICATE_BASE_URL", "https://replicate.example")
+    monkeypatch.setenv("GF_REPLICATE_TIMEOUT", "60")
+    monkeypatch.setenv("GF_REPLICATE_POLL_INTERVAL", "1")
+    monkeypatch.setenv("GF_REPLICATE_DOWNLOAD_TIMEOUT", "30")
+    s = load_settings()
+    assert s.replicate_token == "r8_123"
+    assert s.replicate_base_url == "https://replicate.example"
+    assert s.replicate_timeout == 60
+    assert s.replicate_poll_interval == 1
+    assert s.replicate_download_timeout == 30

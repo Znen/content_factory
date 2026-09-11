@@ -792,3 +792,134 @@ def test_fal_tools_registered():
     mcp, _ = build_server()
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"gf_fal_run", "gf_fal_list_workflows"} <= names
+
+
+# ── Replicate backend orchestration ────────────────────────────────────────
+
+_ReplicateError = __import__("gf.backends.replicate", fromlist=["ReplicateError"]).ReplicateError
+_RVERSION = "5c7d5dc6dd8bf75c1acaa8565735e7986bc5b66206b55cca93cb72c9bf15ccaa"
+
+
+class _FakeReplicate:
+    ReplicateError = _ReplicateError
+
+    @staticmethod
+    def validate_model(model):
+        return __import__("gf.backends.replicate",
+                          fromlist=["validate_model"]).validate_model(model)
+
+    def __init__(self, run_result=None, error=None):
+        url = "https://replicate.delivery/a/out-0.png"
+        self.run_result = run_result or {
+            "status": "completed", "id": "p1", "output": [url], "output_urls": [url],
+            "poll_url": "https://api.replicate.com/v1/predictions/p1",
+            "metrics": {"predict_time": 2.5},
+            "media": {"images": ["/tmp/out-0.png"], "video": [], "audio": [], "files": []},
+            "media_urls": [], "warnings": []}
+        self.error = error
+        self.run_calls = []
+
+    def run(self, model, input, **kw):
+        self.run_calls.append((model, input, kw))
+        if self.error:
+            raise self.ReplicateError(self.error)
+        return self.run_result
+
+
+def _rep_settings(tmp_path):
+    s = _settings(tmp_path)
+    s.replicate_token = "rt-test"
+    return s
+
+
+def test_replicate_run_impl_requires_absolute_project(tmp_path):
+    from gf.mcp_server import _replicate_run_impl
+    r = _FakeReplicate()
+    out = _replicate_run_impl("relative", _RVERSION, {"prompt": "x"},
+                              settings=_rep_settings(tmp_path), replicate=r)
+    assert out["status"] == "error" and "абсолют" in out["error"].lower()
+    assert r.run_calls == []
+
+
+def test_replicate_run_impl_success_shape(tmp_path):
+    from gf import media
+    from gf.mcp_server import _replicate_run_impl
+    r = _FakeReplicate()
+    out = _replicate_run_impl(str(tmp_path), "black-forest-labs/flux-schnell", {"prompt": "x"},
+                              wait_seconds=5, settings=_rep_settings(tmp_path), replicate=r)
+    assert out["backend"] == "replicate" and out["status"] == "completed"
+    assert out["model"] == "black-forest-labs/flux-schnell" and out["id"] == "p1"
+    assert out["outputs"] == ["https://replicate.delivery/a/out-0.png"]
+    assert out["raw_output"] == ["https://replicate.delivery/a/out-0.png"]
+    assert out["media"]["images"] == ["/tmp/out-0.png"] and out["media_urls"] == []
+    assert out["metrics"] == {"predict_time": 2.5}
+    assert out["cost_usd"] is None and "not estimated" in out["pricing_note"]
+    _, _, kw = r.run_calls[0]
+    assert kw["api_key"] == "rt-test" and kw["api_url"] == "https://api.replicate.com"
+    assert kw["timeout"] == 180 and kw["wait_seconds"] == 5
+    assert Path(kw["out_dir"]) == tmp_path / "media" / "generated" / media.today()
+
+
+def test_replicate_run_impl_passes_download_warnings(tmp_path):
+    from gf.mcp_server import _replicate_run_impl
+    url = "https://replicate.delivery/a/clip.mp4"
+    r = _FakeReplicate(run_result={"status": "completed", "id": "p1", "output": url,
+                                   "output_urls": [url], "media": {"images": [], "video": [],
+                                                                   "audio": [], "files": []},
+                                   "media_urls": [url], "warnings": ["retained URL"]})
+    out = _replicate_run_impl(str(tmp_path), _RVERSION, {"prompt": "x"},
+                              settings=_rep_settings(tmp_path), replicate=r)
+    assert out["media_urls"] == [url] and out["warnings"] == ["retained URL"]
+
+
+def test_replicate_run_impl_missing_token_no_project_side_effect(tmp_path):
+    from gf.mcp_server import _replicate_run_impl
+    r = _FakeReplicate()
+    out = _replicate_run_impl(str(tmp_path), _RVERSION, {"prompt": "x"},
+                              settings=_settings(tmp_path), replicate=r)
+    assert out["status"] == "error" and "REPLICATE_API_TOKEN" in out["error"]
+    assert r.run_calls == []
+    assert not (tmp_path / "media").exists()
+
+
+@pytest.mark.parametrize("model,input", [
+    ("https://evil.example/owner/name", {"prompt": "x"}),
+    ("owner/../x", {"prompt": "x"}),
+    (_RVERSION, ["not", "a", "dict"]),
+])
+def test_replicate_run_impl_rejects_bad_args_without_side_effect(tmp_path, model, input):
+    from gf.mcp_server import _replicate_run_impl
+    r = _FakeReplicate()
+    out = _replicate_run_impl(str(tmp_path), model, input,
+                              settings=_rep_settings(tmp_path), replicate=r)
+    assert out["status"] == "error"
+    assert r.run_calls == []
+    assert not (tmp_path / "media").exists()
+
+
+def test_replicate_run_impl_pending_shape(tmp_path):
+    from gf.mcp_server import _replicate_run_impl
+    r = _FakeReplicate(run_result={"status": "pending", "id": "p1",
+                                   "poll_url": "https://api.replicate.com/v1/predictions/p1"})
+    out = _replicate_run_impl(str(tmp_path), _RVERSION, {"prompt": "x"},
+                              settings=_rep_settings(tmp_path), replicate=r)
+    assert out["status"] == "pending" and out["id"] == "p1"
+    assert out["poll_url"] == "https://api.replicate.com/v1/predictions/p1"
+    assert "raw_output" not in out
+
+
+def test_replicate_run_impl_maps_backend_error(tmp_path):
+    from gf.mcp_server import _replicate_run_impl
+    r = _FakeReplicate(error="Replicate prediction p1 failed: CUDA OOM")
+    out = _replicate_run_impl(str(tmp_path), _RVERSION, {"prompt": "x"},
+                              settings=_rep_settings(tmp_path), replicate=r)
+    assert out["status"] == "error" and "CUDA OOM" in out["error"]
+    assert out["backend"] == "replicate"
+
+
+def test_replicate_tool_registered():
+    import asyncio
+    from gf.mcp_server import build_server
+    mcp, _ = build_server()
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert "gf_replicate_run" in names

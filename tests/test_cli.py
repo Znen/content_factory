@@ -1,3 +1,4 @@
+import pytest
 from typer.testing import CliRunner
 from gf.cli import app
 
@@ -57,3 +58,17 @@ def test_fal_run_json_array_returns_structured_error(tmp_path):
     assert r.exit_code == 1
     assert '"status": "error"' in r.output
     assert "JSON object" in r.output
+
+
+def test_help_lists_replicate_command():
+    r = runner.invoke(app, ["--help"])
+    assert r.exit_code == 0
+    assert "replicate-run" in r.output
+
+
+@pytest.mark.parametrize("payload", ["{nope", "[]"])
+def test_replicate_run_bad_json_returns_structured_error(tmp_path, payload):
+    r = runner.invoke(app, ["replicate-run", str(tmp_path), "owner/model", payload])
+    assert r.exit_code == 1
+    assert '"backend": "replicate"' in r.output
+    assert "INPUT_JSON must be a JSON object" in r.output
