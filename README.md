@@ -3,6 +3,11 @@
 Generative MCP layer for the Hermes agent: cheap ComfyUI drafts + Nano Banana finals,
 organized into per-project `media/` per the storage spec. Sits alongside `knowledge-factory`.
 
+> **Ставишь у себя (fal.ai / Replicate через Codex)?** Передай своему агенту файл
+> **[AGENT_SETUP.md](AGENT_SETUP.md)** — он всё настроит сам (клон, установка, ключ, подключение к
+> Codex). Предпочитаешь разобраться руками — см. **[QUICKSTART.md](QUICKSTART.md)**. Локальная
+> инфраструктура для fal/Replicate не нужна — только API-ключ.
+
 ## Tools (for Hermes)
 
 - `gf_generate_draft(project, prompt, n=4, negative="", seed=0)` — N cheap ComfyUI drafts
