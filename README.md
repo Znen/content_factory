@@ -28,6 +28,11 @@ organized into per-project `media/` per the storage spec. Sits alongside `knowle
   (`owner/name`, `owner/name:<version>` or a bare 64-hex version) through the predictions API.
   `@R:/...` file markers anywhere in `input` are uploaded via the Replicate Files API; output
   media are downloaded like fal's (video/audio → `video/`). Timeout → `pending` + `poll_url`.
+- `gf_higgsfield_run(project, model, input, wait_seconds=None)` — run any Higgsfield image or
+  video model by its API path (`veo3.1`, `higgsfield-ai/soul/standard`,
+  `bytedance/seedance/v1/lite/image-to-video`). `input` is the request body itself (flat).
+  `@R:/...` file markers anywhere in `input` are uploaded via a presigned URL; output media
+  are downloaded like fal's. Timeout → `pending` + `poll_url`.
 
 `project` is the absolute path to the project folder.
 

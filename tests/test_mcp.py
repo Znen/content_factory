@@ -923,3 +923,141 @@ def test_replicate_tool_registered():
     mcp, _ = build_server()
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert "gf_replicate_run" in names
+
+
+# ── Higgsfield backend orchestration ───────────────────────────────────────
+
+_HiggsfieldError = __import__("gf.backends.higgsfield",
+                              fromlist=["HiggsfieldError"]).HiggsfieldError
+_HMODEL = "higgsfield-ai/soul/v2/standard"
+_HRID = "d7e6c0f3-6699-4f6c-bb45-2ad7fd9158ff"
+
+
+class _FakeHiggsfield:
+    HiggsfieldError = _HiggsfieldError
+
+    @staticmethod
+    def validate_model(model):
+        return __import__("gf.backends.higgsfield",
+                          fromlist=["validate_model"]).validate_model(model)
+
+    def __init__(self, run_result=None, error=None):
+        url = "https://cdn.higgsfield.example/out/img.jpg"
+        self.run_result = run_result or {
+            "status": "completed", "id": _HRID, "output": {"images": [{"url": url}]},
+            "output_urls": [url],
+            "poll_url": f"https://api.higgsfield.ai/requests/{_HRID}/status",
+            "media": {"images": ["/tmp/img.jpg"], "video": [], "audio": [], "files": []},
+            "media_urls": [], "warnings": []}
+        self.error = error
+        self.run_calls = []
+
+    def run(self, model, input, **kw):
+        self.run_calls.append((model, input, kw))
+        if self.error:
+            raise self.HiggsfieldError(self.error)
+        return self.run_result
+
+
+def _hf_settings(tmp_path):
+    s = _settings(tmp_path)
+    s.higgsfield_api_key_id = "kid-test"
+    s.higgsfield_api_key_secret = "ksec-test"
+    return s
+
+
+def test_higgsfield_run_impl_requires_absolute_project(tmp_path):
+    from gf.mcp_server import _higgsfield_run_impl
+    h = _FakeHiggsfield()
+    out = _higgsfield_run_impl("relative", _HMODEL, {"prompt": "x"},
+                               settings=_hf_settings(tmp_path), higgsfield=h)
+    assert out["status"] == "error" and "абсолют" in out["error"].lower()
+    assert h.run_calls == []
+
+
+def test_higgsfield_run_impl_success_shape(tmp_path):
+    from gf import media
+    from gf.mcp_server import _higgsfield_run_impl
+    h = _FakeHiggsfield()
+    out = _higgsfield_run_impl(str(tmp_path), _HMODEL, {"prompt": "x"}, wait_seconds=5,
+                               settings=_hf_settings(tmp_path), higgsfield=h)
+    assert out["backend"] == "higgsfield" and out["status"] == "completed"
+    assert out["model"] == _HMODEL and out["id"] == _HRID
+    assert out["outputs"] == ["https://cdn.higgsfield.example/out/img.jpg"]
+    assert out["raw_output"] == {"images": [{"url": "https://cdn.higgsfield.example/out/img.jpg"}]}
+    assert out["media"]["images"] == ["/tmp/img.jpg"] and out["media_urls"] == []
+    assert out["cost_usd"] is None and "not estimated" in out["pricing_note"]
+    _, _, kw = h.run_calls[0]
+    assert kw["api_key_id"] == "kid-test" and kw["api_key_secret"] == "ksec-test"
+    assert kw["base_url"] == "https://api.higgsfield.ai"
+    assert kw["timeout"] == 180 and kw["wait_seconds"] == 5
+    assert Path(kw["out_dir"]) == tmp_path / "media" / "generated" / media.today()
+
+
+def test_higgsfield_run_impl_passes_download_warnings(tmp_path):
+    from gf.mcp_server import _higgsfield_run_impl
+    url = "https://cdn.higgsfield.example/out/clip.mp4"
+    h = _FakeHiggsfield(run_result={"status": "completed", "id": _HRID,
+                                    "output": {"video": {"url": url}}, "output_urls": [url],
+                                    "media": {"images": [], "video": [], "audio": [],
+                                              "files": []},
+                                    "media_urls": [url], "warnings": ["retained URL"]})
+    out = _higgsfield_run_impl(str(tmp_path), "veo3.1", {"prompt": "x"},
+                               settings=_hf_settings(tmp_path), higgsfield=h)
+    assert out["media_urls"] == [url] and out["warnings"] == ["retained URL"]
+
+
+@pytest.mark.parametrize("kid,ksec", [(None, "ksec"), ("kid", None), (None, None)])
+def test_higgsfield_run_impl_missing_key_no_project_side_effect(tmp_path, kid, ksec):
+    from gf.mcp_server import _higgsfield_run_impl
+    h = _FakeHiggsfield()
+    s = _hf_settings(tmp_path)
+    s.higgsfield_api_key_id, s.higgsfield_api_key_secret = kid, ksec
+    out = _higgsfield_run_impl(str(tmp_path), _HMODEL, {"prompt": "x"}, settings=s, higgsfield=h)
+    assert out["status"] == "error" and "HIGGSFIELD_API_KEY_ID/SECRET" in out["error"]
+    assert h.run_calls == []
+    assert not (tmp_path / "media").exists()
+
+
+@pytest.mark.parametrize("model,input", [
+    ("https://api.higgsfield.ai/veo3.1", {"prompt": "x"}),
+    ("a/../b", {"prompt": "x"}),
+    ("requests/x/status", {"prompt": "x"}),
+    (_HMODEL, ["not", "a", "dict"]),
+])
+def test_higgsfield_run_impl_rejects_bad_args_without_side_effect(tmp_path, model, input):
+    from gf.mcp_server import _higgsfield_run_impl
+    h = _FakeHiggsfield()
+    out = _higgsfield_run_impl(str(tmp_path), model, input,
+                               settings=_hf_settings(tmp_path), higgsfield=h)
+    assert out["status"] == "error"
+    assert h.run_calls == []
+    assert not (tmp_path / "media").exists()
+
+
+def test_higgsfield_run_impl_pending_shape(tmp_path):
+    from gf.mcp_server import _higgsfield_run_impl
+    poll = f"https://api.higgsfield.ai/requests/{_HRID}/status"
+    h = _FakeHiggsfield(run_result={"status": "pending", "id": _HRID, "poll_url": poll})
+    out = _higgsfield_run_impl(str(tmp_path), _HMODEL, {"prompt": "x"},
+                               settings=_hf_settings(tmp_path), higgsfield=h)
+    assert out["status"] == "pending" and out["id"] == _HRID
+    assert out["poll_url"] == poll
+    assert "raw_output" not in out
+
+
+def test_higgsfield_run_impl_maps_backend_error(tmp_path):
+    from gf.mcp_server import _higgsfield_run_impl
+    h = _FakeHiggsfield(error=f"Higgsfield request {_HRID} failed: Generation failed")
+    out = _higgsfield_run_impl(str(tmp_path), _HMODEL, {"prompt": "x"},
+                               settings=_hf_settings(tmp_path), higgsfield=h)
+    assert out["status"] == "error" and "Generation failed" in out["error"]
+    assert out["backend"] == "higgsfield"
+
+
+def test_higgsfield_tool_registered():
+    import asyncio
+    from gf.mcp_server import build_server
+    mcp, _ = build_server()
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert "gf_higgsfield_run" in names

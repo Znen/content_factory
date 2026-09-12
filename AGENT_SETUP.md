@@ -102,7 +102,7 @@ codex mcp list
 ```
 
 Должен появиться `generation_factory` с инструментами `gf_fal_run`, `gf_replicate_run`,
-`gf_fal_list_workflows`. Если сервера нет — проверь TOML-синтаксис и что `gf serve` (или
+`gf_higgsfield_run`, `gf_fal_list_workflows`. Если сервера нет — проверь TOML-синтаксис и что `gf serve` (или
 `python -m gf.cli serve`) запускается вручную из папки проекта.
 
 ## Шаг 6. Показать пользователю, как пользоваться

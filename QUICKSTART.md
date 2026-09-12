@@ -82,7 +82,7 @@ codex mcp list
 ```
 
 Должен появиться `generation_factory` с инструментами `gf_fal_run`, `gf_replicate_run`,
-`gf_fal_list_workflows` и др.
+`gf_higgsfield_run`, `gf_fal_list_workflows` и др.
 
 > ⚠️ **Ключи из `.env`.** Завод читает `.env` относительно рабочей директории процесса.
 > Если Codex запускает `gf serve` не из папки проекта — ключ может не найтись. Тогда либо

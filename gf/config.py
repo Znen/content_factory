@@ -39,6 +39,12 @@ class Settings:
     replicate_timeout: int = 180
     replicate_poll_interval: int = 3
     replicate_download_timeout: int = 120
+    higgsfield_api_key_id: "str | None" = None
+    higgsfield_api_key_secret: "str | None" = None
+    higgsfield_base_url: str = "https://api.higgsfield.ai"
+    higgsfield_timeout: int = 180
+    higgsfield_poll_interval: int = 3
+    higgsfield_download_timeout: int = 120
 
 
 def _float_or_none(raw: str) -> "float | None":
@@ -96,4 +102,11 @@ def load_settings() -> Settings:
         replicate_timeout=int(os.environ.get("GF_REPLICATE_TIMEOUT", "180")),
         replicate_poll_interval=int(os.environ.get("GF_REPLICATE_POLL_INTERVAL", "3")),
         replicate_download_timeout=int(os.environ.get("GF_REPLICATE_DOWNLOAD_TIMEOUT", "120")),
+        higgsfield_api_key_id=os.environ.get("HIGGSFIELD_API_KEY_ID") or None,
+        higgsfield_api_key_secret=os.environ.get("HIGGSFIELD_API_KEY_SECRET") or None,
+        higgsfield_base_url=os.environ.get("GF_HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai"),
+        higgsfield_timeout=int(os.environ.get("GF_HIGGSFIELD_TIMEOUT", "180")),
+        higgsfield_poll_interval=int(os.environ.get("GF_HIGGSFIELD_POLL_INTERVAL", "3")),
+        higgsfield_download_timeout=int(
+            os.environ.get("GF_HIGGSFIELD_DOWNLOAD_TIMEOUT", "120")),
     )

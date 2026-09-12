@@ -155,6 +155,19 @@ def replicate_run_cmd(project: str, model: str, input_json: str,
                               settings=build_core().settings))
 
 
+@app.command("higgsfield-run")
+def higgsfield_run_cmd(project: str, model: str, input_json: str,
+                       wait_seconds: Optional[int] = typer.Option(None, help="override total poll wait budget")):
+    """Run a Higgsfield model path (veo3.1 | higgsfield-ai/soul/standard | bytedance/...).
+    INPUT_JSON must be a JSON object string (the request body itself); @R:/... file markers
+    are uploaded via a presigned URL."""
+    from .core import build_core
+    from .mcp_server import _higgsfield_run_impl
+    payload = _input_json_or_exit(input_json, "higgsfield")
+    _echo(_higgsfield_run_impl(project, model, payload, wait_seconds,
+                               settings=build_core().settings))
+
+
 @app.command("fal-list-workflows")
 def fal_list_workflows_cmd(search: str = typer.Option("", help="workflow search"),
                            used_endpoint_ids: str = typer.Option("", help="filter by used endpoint IDs"),

@@ -155,3 +155,33 @@ def test_replicate_settings_overrides(monkeypatch):
     assert s.replicate_timeout == 60
     assert s.replicate_poll_interval == 1
     assert s.replicate_download_timeout == 30
+
+
+def test_higgsfield_settings_defaults(monkeypatch):
+    for var in ("HIGGSFIELD_API_KEY_ID", "HIGGSFIELD_API_KEY_SECRET", "GF_HIGGSFIELD_BASE_URL",
+                "GF_HIGGSFIELD_TIMEOUT", "GF_HIGGSFIELD_POLL_INTERVAL",
+                "GF_HIGGSFIELD_DOWNLOAD_TIMEOUT"):
+        monkeypatch.delenv(var, raising=False)
+    s = load_settings()
+    assert s.higgsfield_api_key_id is None
+    assert s.higgsfield_api_key_secret is None
+    assert s.higgsfield_base_url == "https://api.higgsfield.ai"
+    assert s.higgsfield_timeout == 180
+    assert s.higgsfield_poll_interval == 3
+    assert s.higgsfield_download_timeout == 120
+
+
+def test_higgsfield_settings_overrides(monkeypatch):
+    monkeypatch.setenv("HIGGSFIELD_API_KEY_ID", "kid-1")
+    monkeypatch.setenv("HIGGSFIELD_API_KEY_SECRET", "ksec-1")
+    monkeypatch.setenv("GF_HIGGSFIELD_BASE_URL", "https://higgsfield.example")
+    monkeypatch.setenv("GF_HIGGSFIELD_TIMEOUT", "60")
+    monkeypatch.setenv("GF_HIGGSFIELD_POLL_INTERVAL", "1")
+    monkeypatch.setenv("GF_HIGGSFIELD_DOWNLOAD_TIMEOUT", "30")
+    s = load_settings()
+    assert s.higgsfield_api_key_id == "kid-1"
+    assert s.higgsfield_api_key_secret == "ksec-1"
+    assert s.higgsfield_base_url == "https://higgsfield.example"
+    assert s.higgsfield_timeout == 60
+    assert s.higgsfield_poll_interval == 1
+    assert s.higgsfield_download_timeout == 30

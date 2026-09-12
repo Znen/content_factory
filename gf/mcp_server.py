@@ -7,7 +7,7 @@ from pathlib import Path
 from . import pricing, budget as budget_mod, media, writer as writer_mod, video_jobs as jobs_mod
 from .backends import (nano as nano_mod, comfyui as comfyui_mod, dreamina as dreamina_mod,
                        magnific as magnific_mod, fal as fal_mod,
-                       replicate as replicate_mod)
+                       replicate as replicate_mod, higgsfield as higgsfield_mod)
 
 
 def _maybe_rewrite(project, task, negative, target, *, settings, writer):
@@ -511,6 +511,53 @@ def _replicate_run_impl(project: str, model: str, input: dict, wait_seconds: "in
     return out
 
 
+def _higgsfield_pricing_note() -> str:
+    return ("Higgsfield bills credits per model/operation; cost_usd is not estimated by this "
+            "factory.")
+
+
+def _higgsfield_run_impl(project: str, model: str, input: dict, wait_seconds: "int | None" = None,
+                         *, settings, higgsfield=higgsfield_mod) -> dict:
+    """Клон _replicate_run_impl: все отказы (project/model/input/ключ) — до media/ и до сети."""
+    base = {"backend": "higgsfield", "model": model, "cost_usd": None,
+            "pricing_note": _higgsfield_pricing_note()}
+    try:
+        media.require_absolute_project(project)
+    except ValueError as e:
+        return {"error": str(e), "status": "error", **base}
+    try:
+        higgsfield.validate_model(model)
+        if not isinstance(input, dict):
+            raise higgsfield.HiggsfieldError("Higgsfield input must be a JSON object")
+    except higgsfield.HiggsfieldError as e:
+        return {"error": str(e), "status": "error", **base}
+    if not settings.higgsfield_api_key_id or not settings.higgsfield_api_key_secret:
+        return {"error": "Missing HIGGSFIELD_API_KEY_ID/SECRET. Set both HIGGSFIELD_API_KEY_ID "
+                         "and HIGGSFIELD_API_KEY_SECRET in .env to use Higgsfield.",
+                "status": "error", **base}
+    wait_budget = settings.higgsfield_timeout if wait_seconds is None else int(wait_seconds)
+    out_dir = media.generated_dir(Path(project), media.today())
+    try:
+        res = higgsfield.run(model, input, api_key_id=settings.higgsfield_api_key_id,
+                             api_key_secret=settings.higgsfield_api_key_secret,
+                             base_url=settings.higgsfield_base_url,
+                             timeout=settings.higgsfield_timeout, wait_seconds=wait_budget,
+                             poll_interval=settings.higgsfield_poll_interval,
+                             download_timeout=settings.higgsfield_download_timeout,
+                             out_dir=out_dir)
+    except higgsfield.HiggsfieldError as e:
+        return {"error": str(e), "status": "error", **base}
+    out = {**base, "status": res.get("status"), "id": res.get("id")}
+    if res.get("status") == "pending":
+        out["poll_url"] = res.get("poll_url")
+        return out
+    out.update({"outputs": res.get("output_urls", []), "raw_output": res.get("output"),
+                "media": res.get("media", {}), "media_urls": res.get("media_urls", [])})
+    if res.get("warnings"):
+        out["warnings"] = res["warnings"]
+    return out
+
+
 def _write_prompt_impl(project: str, target: str, task: str, refs: "list | None" = None,
                        aspect: str = "", extra: str = "", *, settings, writer=writer_mod) -> dict:
     try:
@@ -655,6 +702,19 @@ def build_server():
         downloaded to media/generated/<date>/ (video/audio -> video/). Not finished within
         wait_seconds -> status=pending + id/poll_url. Cost is not estimated (model/hardware-specific)."""
         return _replicate_run_impl(project, model, input, wait_seconds, settings=settings)
+
+    @mcp.tool()
+    def gf_higgsfield_run(project: str, model: str, input: dict,
+                          wait_seconds: "int | None" = None) -> dict:
+        """Run any Higgsfield model (image or video). project must be an absolute path.
+        model: the API model path, e.g. veo3.1 | nano-banana | higgsfield-ai/soul/standard |
+        bytedance/seedance/v1/lite/image-to-video. input is the request body itself (flat, no
+        wrapper); most models require prompt, image-to-video also image_url.
+        Local file inputs are explicit markers anywhere in input (@C:/path/file.png, @R:/...):
+        each is uploaded via a presigned URL and replaced by its public URL. Output media are
+        downloaded to media/generated/<date>/ (video/audio -> video/). Not finished within
+        wait_seconds -> status=pending + id/poll_url. Cost is not estimated (credit-based)."""
+        return _higgsfield_run_impl(project, model, input, wait_seconds, settings=settings)
 
     from . import curate
 

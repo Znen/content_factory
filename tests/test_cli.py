@@ -72,3 +72,17 @@ def test_replicate_run_bad_json_returns_structured_error(tmp_path, payload):
     assert r.exit_code == 1
     assert '"backend": "replicate"' in r.output
     assert "INPUT_JSON must be a JSON object" in r.output
+
+
+def test_help_lists_higgsfield_command():
+    r = runner.invoke(app, ["--help"])
+    assert r.exit_code == 0
+    assert "higgsfield-run" in r.output
+
+
+@pytest.mark.parametrize("payload", ["{nope", "[]"])
+def test_higgsfield_run_bad_json_returns_structured_error(tmp_path, payload):
+    r = runner.invoke(app, ["higgsfield-run", str(tmp_path), "veo3.1", payload])
+    assert r.exit_code == 1
+    assert '"backend": "higgsfield"' in r.output
+    assert "INPUT_JSON must be a JSON object" in r.output
