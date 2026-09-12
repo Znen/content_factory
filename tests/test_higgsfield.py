@@ -16,11 +16,12 @@ PRESIGNED = "https://fnf-api-input-prod.s3.amazonaws.com/in/x.jpeg?X-Amz-Signatu
 
 
 class _Resp:
-    def __init__(self, status_code=200, payload=None, text="", content=b""):
+    def __init__(self, status_code=200, payload=None, text="", content=b"", headers=None):
         self.status_code = status_code
         self._payload = payload
         self.text = text
         self.content = content
+        self.headers = headers or {}
 
     def json(self):
         if self._payload is None:
@@ -37,8 +38,9 @@ def _status(status, **fields):
 class _Session:
     """Fake-сессия: POST upload-url, PUT в presigned S3, POST submit, GET poll, GET скачивания."""
 
-    def __init__(self, polls=None, submit=None, downloads=None):
+    def __init__(self, polls=None, submit=None, downloads=None, download_headers=None):
         self.posts, self.gets, self.puts = [], [], []
+        self._download_headers = download_headers or {}
         self._polls = list(polls or [])
         self._submit = submit if submit is not None else _status("queued")
         self._downloads = downloads or {}
@@ -63,7 +65,8 @@ class _Session:
         self.gets.append((url, kw))
         if url.startswith(f"{API}/requests/"):
             return _Resp(200, self._polls.pop(0))
-        return _Resp(200, content=self._downloads.get(url, b"DATA"))
+        return _Resp(200, content=self._downloads.get(url, b"DATA"),
+                     headers=self._download_headers.get(url, {}))
 
     @property
     def submits(self):
@@ -428,3 +431,39 @@ def test_run_uploads_markers_before_submit(tmp_path):
     body = s.submits[0][1]["json"]
     assert body["image_url"] == "https://cdn.higgsfield.example/in/f1.jpeg"
     assert not body["image_url"].startswith(("data:", "@"))
+
+
+# ── регресс: presigned-URL без расширения под типизированными ключами ──────
+
+HF_PRESIGNED = ("https://d3snorpfx4xhv8.cloudfront.net/provider-outputs/29cee98f/"
+                "8456c1df-4926-407d-abed-058c4b33bb0c?X-Amz-Signature=abc")
+
+
+def test_extensionless_output_url_is_downloaded_as_image(tmp_path):
+    """MediaOutput несёт ТОЛЬКО url (additionalProperties:false) — расширение может
+    отсутствовать, тогда тип берётся из Content-Type ответа."""
+    s = _Session(polls=[_status("completed", images=[{"url": HF_PRESIGNED}])],
+                 downloads={HF_PRESIGNED: b"JPGBYTES"},
+                 download_headers={HF_PRESIGNED: {"Content-Type": "image/jpeg"}})
+    out = _run(MODEL, {"prompt": "x"}, s, out_dir=tmp_path)
+    assert out["output_urls"] == [HF_PRESIGNED]
+    path = Path(out["media"]["images"][0])
+    assert path.suffix == ".jpg" and path.read_bytes() == b"JPGBYTES"
+    assert out["media_urls"] == [] and out["warnings"] == []
+
+
+def test_extensionless_output_video_goes_to_video_subdir(tmp_path):
+    s = _Session(polls=[_status("completed", video={"url": HF_PRESIGNED})],
+                 downloads={HF_PRESIGNED: b"MP4"},
+                 download_headers={HF_PRESIGNED: {"Content-Type": "video/mp4"}})
+    out = _run("veo3.1", {"prompt": "x"}, s, out_dir=tmp_path)
+    path = Path(out["media"]["video"][0])
+    assert path.parent.name == "video" and path.suffix == ".mp4"
+
+
+def test_envelope_urls_still_not_downloaded_with_extensionless_rule(tmp_path):
+    """status_url/cancel_url — конверт, а не выход: под новое правило они не попадают."""
+    s = _Session(polls=[_status("completed", images=[])])
+    out = _run(MODEL, {"prompt": "x"}, s, out_dir=tmp_path)
+    assert out["output_urls"] == []
+    assert [g[0] for g in s.gets] == [STATUS_URL]

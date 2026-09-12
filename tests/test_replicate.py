@@ -12,11 +12,12 @@ TOKEN = "r8_secret_token"
 
 
 class _Resp:
-    def __init__(self, status_code=200, payload=None, text="", content=b""):
+    def __init__(self, status_code=200, payload=None, text="", content=b"", headers=None):
         self.status_code = status_code
         self._payload = payload
         self.text = text
         self.content = content
+        self.headers = headers or {}
 
     def json(self):
         if self._payload is None:
@@ -32,11 +33,12 @@ def _prediction(status, output=None, error=None, get=POLL_URL):
 class _Session:
     """Fake-сессия: различает POST /v1/files, POST submit, GET poll и GET скачивания."""
 
-    def __init__(self, polls=None, submit=None, downloads=None):
+    def __init__(self, polls=None, submit=None, downloads=None, download_headers=None):
         self.posts, self.gets = [], []
         self._polls = list(polls or [])
         self._submit = submit or _prediction("starting")
         self._downloads = downloads or {}
+        self._download_headers = download_headers or {}
         self._file_n = 0
 
     def post(self, url, **kw):
@@ -51,7 +53,8 @@ class _Session:
         self.gets.append((url, kw))
         if url.startswith(f"{API}/v1/predictions/"):
             return _Resp(200, self._polls.pop(0))
-        return _Resp(200, content=self._downloads.get(url, b"DATA"))
+        return _Resp(200, content=self._downloads.get(url, b"DATA"),
+                     headers=self._download_headers.get(url, {}))
 
     @property
     def submits(self):
@@ -303,3 +306,30 @@ def test_run_uploads_markers_before_submit(tmp_path):
     body = s.submits[0][1]["json"]["input"]
     assert body["image"] == f"{API}/v1/files/f1"                  # Files-URL, не data-URI/маркер
     assert not body["image"].startswith(("data:", "@"))
+
+
+# ── регресс: presigned-URL без расширения в пути ───────────────────────────
+
+PRESIGNED = ("https://replicate.delivery/xezq/provider-outputs/9c1f/"
+             "3f2a8b10-5d6e-4c7a-9b8f-1e2d3c4b5a60?X-Amz-Signature=abc")
+
+
+def test_extensionless_presigned_output_is_downloaded_as_image(tmp_path):
+    """Раньше: completed, но media.images == [] и файл не скачан."""
+    s = _Session(polls=[_prediction("succeeded", output=[PRESIGNED])],
+                 downloads={PRESIGNED: b"JPGBYTES"},
+                 download_headers={PRESIGNED: {"Content-Type": "image/jpeg"}})
+    out = _run(VERSION, {"prompt": "x"}, s, out_dir=tmp_path)
+    assert out["output_urls"] == [PRESIGNED]
+    path = Path(out["media"]["images"][0])
+    assert path.suffix == ".jpg" and path.read_bytes() == b"JPGBYTES"
+    assert out["media_urls"] == [] and out["warnings"] == []
+
+
+def test_extensionless_presigned_video_goes_to_video_subdir(tmp_path):
+    s = _Session(polls=[_prediction("succeeded", output=PRESIGNED)],
+                 downloads={PRESIGNED: b"MP4"},
+                 download_headers={PRESIGNED: {"Content-Type": "video/mp4"}})
+    out = _run("kwaivgi/kling-v2.1", {"prompt": "x"}, s, out_dir=tmp_path)
+    path = Path(out["media"]["video"][0])
+    assert path.parent.name == "video" and path.suffix == ".mp4"

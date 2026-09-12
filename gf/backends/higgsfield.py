@@ -20,6 +20,9 @@ Content Factory, 2026-09-12):
   полях верхнего уровня рядом с конвертом: images:[{url}], video:{url}, audio:{url},
   audios:[{url}]; часть video/3D-операций добавляет zip/mov/jsx/fbx/ply. Мы отрезаем конверт
   (status/request_id/status_url/cancel_url/error) и отдаём остаток как output.
+  MediaOutput в openapi — additionalProperties:false с ЕДИНСТВЕННЫМ полем url: ни content_type,
+  ни file_name не приходят, а расширения в CDN/presigned-ссылке может не быть. Поэтому media
+  собираются с allow_unknown_ext=True, а тип определяется по Content-Type при скачивании.
 - ошибки: FastAPI-конверт {"detail": ...}, где detail — строка ИЛИ СПИСОК (422 validation).
 - upload: свой upload нужен — data-uri не поддерживаются, только публичные https-URL.
   Два шага: POST /files/generate-upload-url {"content_type"} -> {public_url, upload_url,
@@ -328,7 +331,9 @@ def run(model: str, input: dict, *, api_key_id: "str | None", api_key_secret: "s
         raise HiggsfieldError(f"Higgsfield request {rid} was canceled")
 
     output = _output(request)
-    refs = _media.collect_keyed_media_refs(output)
+    # MediaOutput в openapi несёт ТОЛЬКО url (additionalProperties:false) — ни content_type,
+    # ни file_name; расширения в CDN/presigned-ссылке может не быть, тип придёт из Content-Type.
+    refs = _media.collect_keyed_media_refs(output, allow_unknown_ext=True)
     result = {"status": "completed", "id": rid, "output": output,
               "output_urls": [r["url"] for r in refs], "poll_url": poll_url}
     if out_dir is not None:

@@ -88,13 +88,14 @@ def is_http_url(value) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-def _media_ref_from_object(obj: dict) -> "dict | None":
+def _media_ref_from_object(obj: dict, *, allow_unknown_ext: bool = False) -> "dict | None":
     url = obj.get("url") or obj.get("image_url") or obj.get("video_url") or obj.get("audio_url")
     if not is_http_url(url):
         return None
     content_type = str(obj.get("content_type") or obj.get("mime_type") or "")
     file_name = str(obj.get("file_name") or obj.get("filename") or obj.get("name") or "")
-    if not content_type and media_ext(file_name=file_name, url=str(url)) == ".bin":
+    if (not content_type and not allow_unknown_ext
+            and media_ext(file_name=file_name, url=str(url)) == ".bin"):
         return None
     return {"url": url, "content_type": content_type, "file_name": file_name}
 
@@ -109,6 +110,18 @@ def string_media_ref(url: str) -> "dict | None":
             "file_name": ""}
 
 
+def url_media_ref(url: str) -> "dict | None":
+    """http(s)-URL -> ref БЕЗ требования расширения в пути.
+
+    Presigned-ссылки S3/CDN (.../provider-outputs/<hash>/<uuid>?X-Amz-Signature=...) несут
+    тип только в Content-Type ответа — расширения в пути у них нет. Тип здесь остаётся
+    пустым и доопределяется при скачивании (см. download_media_refs)."""
+    if not is_http_url(url):
+        return None
+    return {"url": url, "content_type": mimetypes.guess_type(urlparse(url).path)[0] or "",
+            "file_name": ""}
+
+
 def _dedupe(found: list) -> list:
     out, seen = [], set()
     for ref in found:
@@ -118,27 +131,35 @@ def _dedupe(found: list) -> list:
     return out
 
 
-def collect_keyed_media_refs(obj, *, parent_key: str = "") -> list:
+def collect_keyed_media_refs(obj, *, parent_key: str = "",
+                             allow_unknown_ext: bool = False) -> list:
     """fal-семантика: media ищется под известными ключами (images/video/url/...) и в
-    объектах с url+content_type/file_name."""
+    объектах с url+content_type/file_name.
+
+    allow_unknown_ext=True — для бэкендов, чей output несёт ТОЛЬКО url (higgsfield:
+    MediaOutput = {url}, additionalProperties:false), где расширения в ссылке может не
+    быть. Ключи по-прежнему обязаны быть media-ключами, так что чужие URL не подхватываются."""
+    ref_of = url_media_ref if allow_unknown_ext else string_media_ref
     found = []
     if isinstance(obj, dict):
-        ref = _media_ref_from_object(obj)
+        ref = _media_ref_from_object(obj, allow_unknown_ext=allow_unknown_ext)
         if ref and (parent_key in MEDIA_KEYS or obj.get("content_type") or obj.get("file_name")):
             found.append(ref)
         for k, v in obj.items():
             key = str(k).lower()
             if isinstance(v, str) and key in MEDIA_KEYS:
-                ref = string_media_ref(v)
+                ref = ref_of(v)
                 if ref:
                     found.append(ref)
             else:
-                found.extend(collect_keyed_media_refs(v, parent_key=key))
+                found.extend(collect_keyed_media_refs(v, parent_key=key,
+                                                      allow_unknown_ext=allow_unknown_ext))
     elif isinstance(obj, list):
         for v in obj:
-            found.extend(collect_keyed_media_refs(v, parent_key=parent_key))
+            found.extend(collect_keyed_media_refs(v, parent_key=parent_key,
+                                                  allow_unknown_ext=allow_unknown_ext))
     elif isinstance(obj, str) and parent_key in MEDIA_KEYS:
-        ref = string_media_ref(obj)
+        ref = ref_of(obj)
         if ref:
             found.append(ref)
     return _dedupe(found)
@@ -146,7 +167,10 @@ def collect_keyed_media_refs(obj, *, parent_key: str = "") -> list:
 
 def collect_url_media_refs(obj) -> list:
     """Replicate-семантика: output — голый URL, список URL или dict с произвольными
-    ключами. Берём ЛЮБУЮ http(s)-строку с media-расширением на любой глубине."""
+    ключами, без типовой обвязки. Берём ЛЮБУЮ http(s)-строку на любой глубине — БЕЗ
+    требования media-расширения: presigned-выходы Replicate приходят как
+    .../provider-outputs/<hash>/<uuid>?X-Amz-Signature=... и тип несут только в
+    Content-Type ответа (доопределяется при скачивании)."""
     found = []
 
     def _walk(o):
@@ -157,7 +181,7 @@ def collect_url_media_refs(obj) -> list:
             for v in o:
                 _walk(v)
         elif isinstance(o, str):
-            ref = string_media_ref(o)
+            ref = url_media_ref(o)
             if ref:
                 found.append(ref)
 
@@ -181,9 +205,21 @@ def _next_available(dest_dir: Path, name: str) -> Path:
     raise _DownloadError(f"Cannot allocate output filename for {name!r}")
 
 
+def response_content_type(resp) -> str:
+    """Content-Type ответа; пусто, если заголовков нет (фейки в тестах, экзотические клиенты)."""
+    headers = getattr(resp, "headers", None) or {}
+    if not hasattr(headers, "get"):
+        return ""
+    return str(headers.get("Content-Type") or headers.get("content-type") or "")
+
+
 def download_media_refs(refs: list, out_dir: "str | Path", *, session=None, timeout: int = 120,
                         brand: str = "media") -> dict:
-    """Скачать refs без auth-заголовков. Возвращает {media, media_urls (упавшие), warnings}."""
+    """Скачать refs без auth-заголовков. Возвращает {media, media_urls (упавшие), warnings}.
+
+    Вид и расширение выбираются ПОСЛЕ ответа: если ни ref, ни URL, ни file_name тип не дают
+    (presigned-ссылка без расширения), он берётся из Content-Type ответа — иначе результат
+    лёг бы как .bin в files/ или вовсе не был бы распознан."""
     session = session or requests
     out_dir = Path(out_dir)
     media = {"images": [], "video": [], "audio": [], "files": []}
@@ -191,17 +227,20 @@ def download_media_refs(refs: list, out_dir: "str | Path", *, session=None, time
     counters = {"images": 0, "video": 0, "audio": 0, "files": 0}
     for ref in refs:
         url = ref["url"]
-        kind = media_kind(ref.get("content_type", ""), ref.get("file_name", ""), url)
-        dest_dir = out_dir / _media_subdir(kind) if _media_subdir(kind) else out_dir
-        counters[kind] += 1
-        name = _safe_name(brand, kind, counters[kind], url=url,
-                          content_type=ref.get("content_type", ""),
-                          file_name=ref.get("file_name", ""))
+        content_type = ref.get("content_type", "")
+        file_name = ref.get("file_name", "")
         try:
-            path = _next_available(dest_dir, name)
             resp = session.get(url, timeout=timeout)
             if resp.status_code != 200:
                 raise _DownloadError(f"HTTP {resp.status_code}")
+            if not content_type and media_ext(file_name=file_name, url=url) == ".bin":
+                content_type = response_content_type(resp)
+            kind = media_kind(content_type, file_name, url)
+            counters[kind] += 1
+            name = _safe_name(brand, kind, counters[kind], url=url, content_type=content_type,
+                              file_name=file_name)
+            dest_dir = out_dir / _media_subdir(kind) if _media_subdir(kind) else out_dir
+            path = _next_available(dest_dir, name)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(resp.content)
             media[kind].append(str(path))
